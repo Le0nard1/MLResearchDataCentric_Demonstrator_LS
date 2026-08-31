@@ -1,0 +1,59 @@
+{
+  "name": "iter20_schedules_i5n50",
+  "description": "HEADLINE PAIR, DYNAMIC (sigma widens, alpha decays), at the initial-training setting the grid search selected: 5 iterations on 50 points. Chosen because it is the only cell where the dynamic schedule both wins early (-0.0138, the largest early advantage in the grid) and holds parity late (+0.0077, p=0.43) while the static schedule degrades significantly (+0.0352, p=0.025). Run on seeds 100-114, DISJOINT from the seeds the search used, because the cell was selected after inspecting that search — these are the numbers to quote. 20 iterations, 15 seeds, new-only regime.",
+  "secs_per_run": 9.0,
+  "detectors": [
+    "Quantile Regression"
+  ],
+  "grid": {
+    "sel_sigma": [
+      0.5
+    ],
+    "sigma_schedule": [
+      "Linear widen"
+    ],
+    "sigma_rate": [
+      0.5
+    ],
+    "mix_ratio": [
+      0.5
+    ],
+    "mix_schedule": [
+      "Linear decay"
+    ],
+    "mix_rate": [
+      0.5
+    ],
+    "n_iterations": [
+      20
+    ],
+    "regimes": [
+      [
+        "new-only"
+      ]
+    ],
+    "seed": [
+      100,
+      101,
+      102,
+      103,
+      104,
+      105,
+      106,
+      107,
+      108,
+      109,
+      110,
+      111,
+      112,
+      113,
+      114
+    ],
+    "iters_initial": [
+      5
+    ],
+    "n_train": [
+      50
+    ]
+  }
+}

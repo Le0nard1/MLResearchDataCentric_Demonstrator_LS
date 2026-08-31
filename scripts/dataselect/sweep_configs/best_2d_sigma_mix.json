@@ -1,0 +1,91 @@
+{
+  "name": "best_2d_sigma_mix",
+  "description": "2D interaction: selection-kernel width (sel_sigma) x rehearsal mix ratio. Anchored at the 10-seed joint-search sweet spot (deeper undertrained regime + wide kernel, warm-start): n_bumps 5, noise_std 0.05, radius 0.25, iters_initial 12, n_train 100, sel_sigma 0.5, n_select 100, mix_ratio 0.5, iters_retrain 400, Weakpoint distance. At this anchor guided beats the random baseline over the WHOLE area ~75-85% of the time (gap ~-0.25) and fixes the weakspot hard. Default detector trio = strong, diverse detectors here (Quantile Regression, Peaks over Threshold (EVT), RBF Interpolation); 20 seeds. Co-varies focus/spread of the curated points (sel_sigma) against the guided-vs-uniform blend (mix_ratio) to map the joint focus-vs-coverage surface for the whole-area win.",
+  "secs_per_run": 1.6,
+  "detectors": [
+    "Quantile Regression",
+    "Peaks over Threshold (EVT)",
+    "RBF Interpolation"
+  ],
+  "grid": {
+    "n_bumps": [
+      5
+    ],
+    "noise_std": [
+      0.05
+    ],
+    "n_pool_total": [
+      2000
+    ],
+    "shift_strength": [
+      0.0
+    ],
+    "radius": [
+      0.25
+    ],
+    "iters_initial": [
+      12
+    ],
+    "n_train": [
+      100
+    ],
+    "sel_sigma": [
+      0.1,
+      0.2,
+      0.3,
+      0.4,
+      0.5,
+      0.6,
+      0.7,
+      0.8
+    ],
+    "n_select": [
+      100
+    ],
+    "n_candidate": [
+      2000
+    ],
+    "sel_method": [
+      "Weakpoint distance"
+    ],
+    "mix_ratio": [
+      0.0,
+      0.15,
+      0.3,
+      0.45,
+      0.5,
+      0.6,
+      0.7,
+      0.85,
+      1.0
+    ],
+    "iters_retrain": [
+      400
+    ],
+    "warm_start": [
+      true
+    ],
+    "seed": [
+      42,
+      0,
+      7,
+      1,
+      3,
+      5,
+      11,
+      17,
+      23,
+      99,
+      2,
+      4,
+      6,
+      8,
+      13,
+      19,
+      29,
+      37,
+      53,
+      71
+    ]
+  }
+}

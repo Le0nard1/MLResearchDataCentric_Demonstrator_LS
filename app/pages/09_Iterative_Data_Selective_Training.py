@@ -22,9 +22,11 @@ Everything the loop makes newly meaningful is exposed as an axis:
   dominant coverage controls (rehearsal mix α, kernel width σ), including an
   adaptive variant that relaxes the focus as the detected weakspot heals — the
   extension the paper's Discussion names explicitly.
-* **Regimes** — accumulative (the industrial protocol the paper listed as
-  untested), new-only (the paper's own conservative protocol, repeated), and a
-  size-matched scaled-accum control.
+* **Regimes** — the focused default is *new-only*: every round continues
+  training on just that round's newly selected points, the paper's own
+  conservative protocol repeated. Accumulative (the industrial protocol it
+  listed as untested) and a size-matched scaled-accum control can be switched
+  on to turn the run into the regime comparison.
 * **Staging** — a budget- and compute-matched single-shot reference answering
   whether K rounds of n points beat one round of K·n.
 
@@ -80,7 +82,9 @@ PRESETS: dict[str, dict] = {
     "Paper operating point (looped)": {},
     "Paper broad-sweep best (small gap 0.12)": dict(radius=0.12),
     "Forgetting stress test (narrow σ, pure guided)": dict(
-        sel_sigma=0.1, mix_ratio=1.0, regimes=list(L.REGIMES)),
+        sel_sigma=0.1, mix_ratio=1.0),
+    "Regime comparison (all three protocols)": dict(
+        regimes=["new-only", "accumulative", "scaled-accum"]),
     "Relax-the-focus schedule (adaptive α)": dict(
         mix_schedule="Adaptive (weakspot severity)", mix_ratio=1.0, sel_sigma=0.2),
     "Consolidating learning rate (cosine decay)": dict(
@@ -121,7 +125,37 @@ if st.sidebar.button("↺ Apply preset", width='stretch'):
     st.rerun()
 
 sb = st.sidebar
-seed = sb.number_input("Random seed", 0, 9999, step=1, key="it_seed")
+S.setdefault("it_seeds_text", str(L.DEFAULTS["seed"]))
+seeds_text = sb.text_input(
+    "Random seed(s)", key="it_seeds_text",
+    help="One seed, or several separated by commas or spaces — e.g. "
+         "`42, 0, 7, 1, 3`. With more than one the loop is run once per seed and "
+         "every trajectory chart shows the **mean with a 95% confidence band**, "
+         "plus a significance test in the Summary tab.\n\n"
+         "⚠️ Worth doing: seed-to-seed spread in this loop is several times larger "
+         "than the effects being looked for, so a single seed can show guidance "
+         "winning or losing more or less at random. Cost is linear — n seeds take "
+         "n × as long.")
+
+
+def _parse_seeds(txt: str) -> list[int]:
+    """Seeds from free text; falls back to the engine default if nothing parses."""
+    out, seen = [], set()
+    for tok in txt.replace(",", " ").split():
+        try:
+            v = int(tok)
+        except ValueError:
+            continue
+        if v not in seen:
+            seen.add(v); out.append(v)
+    return out or [int(L.DEFAULTS["seed"])]
+
+
+seed_list = _parse_seeds(seeds_text)
+seed = seed_list[0]
+if len(seed_list) > 1:
+    sb.caption(f"↳ {len(seed_list)} seeds: {', '.join(map(str, seed_list[:8]))}"
+               f"{' …' if len(seed_list) > 8 else ''}")
 
 sb.subheader("1. Dataset & Landscape")
 n_bumps = sb.slider("Function complexity (n_bumps)", 1, 10, step=1, key="it_n_bumps")
@@ -194,7 +228,7 @@ lr_init = sb.select_slider(
 
 sb.subheader("5. Initial Training")
 iters_initial = sb.slider(
-    "Initial training time (iterations)", 3, 2000, step=1,
+    "Initial training time (iterations)", 3, 500, step=1,
     key="it_iters_initial",
     help="Kept deliberately low (12 at the paper's operating point) so the initial "
          "model is undertrained and there is headroom for the loop. The paper found "
@@ -231,8 +265,20 @@ sel_method = sb.selectbox(
          "• **Shape aware** — Gaussian shaped to the detected ellipse.")
 sel_mode = sb.radio("Selection rule", ["Sample ∝ weight", "Top-weighted"],
                     key="it_sel_mode")
+S.setdefault("it_no_gauss", False)
+no_gauss = sb.checkbox(
+    "Disable Gaussian selection kernel", key="it_no_gauss",
+    help="**Off by default — leaving it off keeps the current behaviour.** "
+         "When ticked, the soft Gaussian kernel is replaced by hard membership of "
+         "the detected region: a candidate is either inside the detected 2σ "
+         "ellipse or not, and the guided share is drawn uniformly from those that "
+         "are. The rehearsal mix α then becomes the *only* control of how "
+         "concentrated a round is, which is the clean test of whether σ and α "
+         "really are the substitutable coverage controls the single-round study "
+         "assumed. σ still sets the fallback radius when no ellipse is extracted.")
 sel_sigma = sb.slider(
     "Kernel width σ (start)", 0.02, 1.50, step=0.01, key="it_sel_sigma",
+    disabled=no_gauss,
     help="One of the paper's two dominant controls. Narrow = pours data into the "
          "gap and risks forgetting; above ~0.5 the kernel is nearly flat on the unit "
          "square and guided selection approaches the random baseline.")
@@ -262,6 +308,21 @@ mix_rate = sb.slider("α schedule rate", 0.0, 1.0, step=0.05,
 n_select = sb.slider("Points added per iteration", 10, 1000, step=10, key="it_n_select")
 n_candidate = sb.slider("Candidate pool size", 200, 4000, step=100,
                         key="it_n_candidate")
+pool_deficit = sb.slider(
+    "Candidate scarcity in the gap", 0.0, 1.0, step=0.05, key="it_pool_deficit",
+    disabled=not induce_ws,
+    help="Fraction of candidates **inside the induced gap that do not exist**. "
+         "0 (the single-round study's protocol) draws candidates uniformly over "
+         "the whole square — which makes the gap a one-shot deficit: 100 uniform "
+         "points fill it in round 1, the random arm fills it too, and afterwards "
+         "guidance has no real target and starts chasing noise. Raising this "
+         "reproduces the fixed-dataset premise the study is motivated by — a "
+         "region is under-represented *because* data there is hard to get. "
+         "⚠️ **Measured result: this makes guided worse** (gap +0.04 at 0.9) — if "
+         "the points are not there, concentrating the budget on the hole buys a "
+         "ring of near-misses while the baseline spends the same budget on useful "
+         "coverage. A real finding about the industrial claim, not a fix. Kept as "
+         "an axis; 0 is the previous experiments' protocol.")
 pool_mode = sb.radio(
     "Candidate pool", list(L.POOL_MODES), key="it_pool_mode",
     help="**Fresh pool each iteration** is the paper's protocol. **Fixed pool** draws "
@@ -276,10 +337,33 @@ training_mode = sb.radio(
     help="**Warm-start** continues each track's model from the previous round's "
          "weights, which is what makes this a *continued* training study. MLP only; "
          "other algorithms fall back to from-scratch.")
-early_stop = sb.checkbox("Early stopping (regularise MLP)", key="it_early_stopping")
+early_stop = sb.checkbox(
+    "Early stopping (regularise MLP)", key="it_early_stopping",
+    help="**Off by default in the loop**, unlike the single-round study. Holding "
+         "out 10% of a 100-point round leaves a 10-point validation set — too "
+         "noisy to stop on — and it makes the retraining budget unknowable, since "
+         "a round then runs some unrecorded number of epochs instead of the one "
+         "configured above. Off means *continue for exactly that many epochs*, "
+         "which matters because the budget is a swept axis. Safe to switch on: "
+         "each round's stopping state is reset, so the decision is per-round.")
 iters_retrain = sb.slider("Retraining time per iteration", 20, 2000, step=10,
                           key="it_iters_retrain")
-n_iterations = sb.slider("Number of iterations", 1, 30, step=1, key="it_n_iterations")
+n_iterations = sb.slider(
+    "Number of iterations", 1, 200, step=1, key="it_n_iterations",
+    help="Long trajectories are where the loop's own behaviour shows — but cost "
+         "grows linearly: at the default 400 retraining epochs, 200 iterations is "
+         "roughly 200× a single round. Drop the retraining time (or the evaluation "
+         "set) before going long.")
+round_blend = sb.slider(
+    "Round damping β", 0.1, 1.0, step=0.05, key="it_round_blend", disabled=not _is_mlp,
+    help="Averages each round's model with the previous one: **β·new + (1−β)·old** "
+         "(round-level Polyak averaging). β=1 (default) takes each round's model "
+         "whole, which is what every previous experiment here is based on. "
+         "⚠️ **Measured result: damping makes things worse, not smoother** — at "
+         "β=0.4 the trajectory got ~3× bumpier and the gap widened. Averaging the "
+         "weights of a nonlinear net lands between two solutions that are not "
+         "linearly connected in loss space, so the blend is worse than either "
+         "endpoint. Kept as an axis, not a recommendation.")
 lr_schedule = sb.selectbox(
     "Learning-rate schedule", list(M.LR_SCHEDULES),
     key="it_lr_schedule", disabled=not _is_mlp,
@@ -295,14 +379,18 @@ lr_step = sb.slider("LR step / restart period", 1, 10, step=1,
                     key="it_lr_step", disabled=_lr_flat or not _is_mlp)
 regimes = sb.multiselect(
     "Regimes to run", list(L.REGIMES), key="it_regimes",
-    help="**Accumulative** retrains on the whole growing set (always run — the "
-         "industrial protocol the paper left untested). **New-only** uses just that "
-         "round's points, repeating the paper's conservative protocol. "
-         "**Scaled-accum** subsamples the accumulated pool to the new-only point "
-         "count: if it tracks accumulative at equal size, the win is the training "
-         "*distribution*, not the amount of data.")
+    help="Default is **new-only** alone: each round continues training on *just "
+         "that round's newly selected points*, the companion paper's own protocol "
+         "repeated. Add **accumulative** (retrain on the whole growing set) and "
+         "**scaled-accum** (the accumulated pool subsampled to the new-only point "
+         "count) to turn the run into the regime comparison.\n\n"
+         "⚠️ The **first** regime listed is the primary: its guided model is what "
+         "the detector is run against each round, and every headline number is "
+         "reported against it. Reorder by deselecting and reselecting.")
 single_shot = sb.checkbox(
     "Budget-matched single-shot control", key="it_single_shot",
+    # Off by default: it costs two extra fits per run and answers a different
+    # question (staging) from the guided-vs-random comparison the page is for.
     help="Also trains one model on K × n_select points added in a single round, with "
          "K × the retraining budget — so data and compute match and only the staging "
          "differs. Answers whether iterating is worth anything at all.")
@@ -335,10 +423,13 @@ def _current_config() -> dict:
         sigma_rate=float(sigma_rate), mix_ratio=float(mix_ratio),
         mix_schedule=mix_schedule, mix_rate=float(mix_rate),
         n_select=int(n_select), n_candidate=int(n_candidate), pool_mode=pool_mode,
+        gaussian_kernel=not no_gauss,
+        pool_deficit=float(pool_deficit) if induce_ws else 0.0,
         warm_start=training_mode.startswith("Warm"), early_stopping=bool(early_stop),
         iters_retrain=int(iters_retrain), n_iterations=int(n_iterations),
         lr_schedule=lr_schedule, lr_gamma=float(lr_gamma), lr_min=float(lr_min),
-        lr_step=int(lr_step), regimes=list(regimes) or ["accumulative"],
+        lr_step=int(lr_step), round_blend=float(round_blend),
+        regimes=list(regimes) or ["new-only"],
         single_shot=bool(single_shot), tie_model_seed=bool(tie_model_seed),
     )
 
@@ -352,16 +443,30 @@ if run_btn or S.pop("_it_trigger", False):
         st.info(f"Warm-start is implemented for the MLP; **{cfg['model_name']}** "
                 f"is rebuilt from scratch each iteration instead.")
     bar = st.progress(0.0, text="Iterating…")
-    res = L.run_iterative(cfg, keep_rounds=True,
-                          progress=lambda d, t, txt: bar.progress(d / max(t, 1), text=txt))
+    runs = []
+    n_s = len(seed_list)
+    for si, sd in enumerate(seed_list):
+        # Only the first seed keeps its per-round detail (pools, selections, error
+        # fields): the detail tabs show one trajectory, and holding all of them
+        # would balloon session state for no gain.
+        runs.append(L.run_iterative(
+            {**cfg, "seed": int(sd)}, keep_rounds=(si == 0),
+            progress=lambda d, t, txt, si=si, sd=sd: bar.progress(
+                (si + d / max(t, 1)) / n_s,
+                text=f"seed {sd} ({si + 1}/{n_s}) · {txt}")))
     bar.empty()
-    S["iter2"] = res
+    S["iter2"] = runs[0]
+    S["iter2_runs"] = runs
+    S["iter2_seeds"] = list(seed_list)
 
 if "iter2" not in S:
     st.info("Configure the sidebar and press **🚀 Run Iterative Pipeline** — or open "
             "the **🧪 Parameter Sweep** tab to run a whole grid.")
 
 R = S.get("iter2")
+RUNS = S.get("iter2_runs", [R] if R else [])
+RSEEDS = S.get("iter2_seeds", [])
+MULTI = len(RUNS) > 1
 
 tabs = st.tabs(["① Setup", "📉 Trajectory", "🔬 Round Explorer",
                 "🎛️ Schedules & Detection", "🧾 Summary", "🧪 Parameter Sweep"])
@@ -413,8 +518,15 @@ with tabs[1]:
             "the shared initial model. Lower is better. Guided and random draw from the "
             "*same* candidate pool each round, so the only difference between a green "
             "and a red curve is the selection rule.")
+        if MULTI:
+            st.success(
+                f"Averaged over **{len(RUNS)} seeds** ({', '.join(map(str, RSEEDS[:10]))}"
+                f"{' …' if len(RSEEDS) > 10 else ''}). Shaded bands are 95% confidence "
+                f"intervals across seeds — where a band crosses the other curve, the two "
+                f"strategies are not distinguishable at that round.")
         s1, s2 = st.columns([1.4, 1])
         sm = s1.selectbox("Trend smoothing", list(IP.SMOOTHERS), index=0,
+                          disabled=MULTI,
                           help="Cosmetic only — raw values stay visible as faint dots, "
                                "and the Summary table and CSV always use raw numbers.")
         win = s2.slider("Smoothing window / span", 2, max(3, len(iters) - 1), 3,
@@ -425,9 +537,14 @@ with tabs[1]:
             ss = R["single_shot"]
             refs = {"single-shot guided": (ss["guided"]["mae"], "#2ca02c"),
                     "single-shot random": (ss["random"]["mae"], "#d62728")}
-        st.plotly_chart(IP.trend_figure(
-            iters, H, "mae", "MAE",
-            "Whole-area evaluation MAE per iteration", sm, win, refs), width='stretch')
+        _tracks = [r["tracks"] for r in RUNS]
+        st.plotly_chart(
+            IP.trend_figure_ci(iters, _tracks, "mae", "MAE",
+                               "Whole-area evaluation MAE per iteration", refs)
+            if MULTI else
+            IP.trend_figure(iters, H, "mae", "MAE",
+                            "Whole-area evaluation MAE per iteration", sm, win, refs),
+            width='stretch')
         if refs:
             st.caption(
                 "The dash-dot lines are the **budget- and compute-matched single-shot** "
@@ -446,12 +563,16 @@ with tabs[1]:
                 "The single-round study could only infer this trade-off from the "
                 "whole-area metric; here it is separated and tracked round by round.")
             g1, g2 = st.columns(2)
-            g1.plotly_chart(IP.trend_figure(iters, H, "err_in", "error in weakspot",
-                                            "Inside the induced gap", sm, win),
-                            width='stretch')
-            g2.plotly_chart(IP.trend_figure(iters, H, "err_out", "error outside weakspot",
-                                            "Outside the gap (forgetting)", sm, win),
-                            width='stretch')
+            g1.plotly_chart(
+                IP.trend_figure_ci(iters, _tracks, "err_in", "error in weakspot",
+                                   "Inside the induced gap") if MULTI else
+                IP.trend_figure(iters, H, "err_in", "error in weakspot",
+                                "Inside the induced gap", sm, win), width='stretch')
+            g2.plotly_chart(
+                IP.trend_figure_ci(iters, _tracks, "err_out", "error outside weakspot",
+                                   "Outside the gap (forgetting)") if MULTI else
+                IP.trend_figure(iters, H, "err_out", "error outside weakspot",
+                                "Outside the gap (forgetting)", sm, win), width='stretch')
 
         st.markdown("---")
         st.subheader("Head-to-head: guided − random, per iteration")
@@ -460,13 +581,17 @@ with tabs[1]:
             "round, now as a trajectory. Below zero = guided ahead. Whether an early "
             "advantage survives to the end of the loop, or is competed away as the "
             "random baseline accumulates coverage, is the question this chart answers.")
-        st.plotly_chart(IP.gap_figure(iters, H, "mae",
-                                      "Whole-area MAE advantage", sm, win),
-                        width='stretch')
+        st.plotly_chart(
+            IP.gap_figure_ci(iters, _tracks, "mae", "Whole-area MAE advantage")
+            if MULTI else
+            IP.gap_figure(iters, H, "mae", "Whole-area MAE advantage", sm, win),
+            width='stretch')
         if cfg["radius"] > 0:
-            st.plotly_chart(IP.gap_figure(iters, H, "err_in",
-                                          "In-weakspot advantage", sm, win),
-                            width='stretch')
+            st.plotly_chart(
+                IP.gap_figure_ci(iters, _tracks, "err_in", "In-weakspot advantage")
+                if MULTI else
+                IP.gap_figure(iters, H, "err_in", "In-weakspot advantage", sm, win),
+                width='stretch')
 
 # ─────────────────────────────────────────────────────────────
 # 🔬 ROUND EXPLORER
@@ -481,9 +606,9 @@ with tabs[2]:
             "Pick a round. **Left:** the guided selection, with the candidate pool "
             "coloured by the selection weight and the σ rings drawn on the *detected* "
             "centre. **Right:** the random baseline drawn from the same pool. Both "
-            "selections feed every regime — appended to the accumulative set and, "
-            "separately, used alone by the new-only model. The dashed red circle is "
-            "the induced gap.")
+            "selections are the round's entire training set under the default "
+            "new-only regime, and are additionally appended to the accumulative set "
+            "when that regime is enabled. The dashed red circle is the induced gap.")
         it_sel = st.slider("Iteration", 1, len(R["rounds"]), 1, key="it_round_pick")
         rd = R["rounds"][it_sel - 1]
         k1, k2, k3, k4 = st.columns(4)
@@ -497,8 +622,8 @@ with tabs[2]:
         c1, c2 = st.columns(2)
         with c1:
             st.markdown(f"**Guided** — *{cfg['sel_method']}* via *{cfg['detector']}*, "
-                        f"{len(rd['Xsel_g'])} points added "
-                        f"(accumulative set now {rd['n_train_acc']})")
+                        f"{len(rd['Xsel_g'])} points selected "
+                        f"(cumulative total {rd['n_train_acc']})")
             st.plotly_chart(plot_selection(
                 rd["Xc_g"], rd["w_g"], rd["Xsel_g"], rd["c_g"], rd["sigma"],
                 su["center"], su["radius"],
@@ -556,18 +681,68 @@ with tabs[4]:
         st.info("Run the pipeline to populate this tab.")
     else:
         H, cfg, iters = R["tracks"], R["cfg"], R["iters"]
+        GK, RK = R["driver"]
         summ = L.summarise(R)
+
+        if MULTI:
+            # With several seeds the honest headline is a test across them, not the
+            # first trajectory: the per-seed spread here is several times the effect
+            # size, so a single run's verdict is close to a coin flip.
+            gk, rk = R["driver"]
+            per_seed = np.array([
+                np.mean(np.asarray(r["tracks"][gk]["mae"][1:], float)
+                        - np.asarray(r["tracks"][rk]["mae"][1:], float))
+                for r in RUNS])
+            n = len(per_seed)
+            mean, sd = float(per_seed.mean()), float(per_seed.std(ddof=1))
+            sem = sd / np.sqrt(n)
+            t = mean / sem if sem > 0 else 0.0
+            # Two-sided p from the t distribution; scipy is optional here.
+            try:
+                from scipy import stats as _st
+                pval = float(_st.ttest_1samp(per_seed, 0.0).pvalue)
+            except Exception:
+                pval = float("nan")
+            st.subheader(f"Across {n} seeds")
+            q1, q2, q3, q4 = st.columns(4)
+            q1.metric("Mean gap (guided − random)", f"{mean:+.4f}",
+                      help="Averaged over iterations 1…K, then over seeds. "
+                           "Negative = guided ahead.")
+            q2.metric("95% CI", f"{mean - 1.96*sem:+.4f} … {mean + 1.96*sem:+.4f}")
+            q3.metric("p (vs 0)", "n/a" if pval != pval else f"{pval:.3f}",
+                      help="One-sample t-test on the per-seed gap. Above 0.05 means "
+                           "this run cannot distinguish the two strategies.")
+            q4.metric("Seeds where guided won", f"{int((per_seed < 0).sum())}/{n}")
+            if pval == pval and pval >= 0.05:
+                st.info(
+                    f"**Not distinguishable from random** (p={pval:.3f}). The per-seed "
+                    f"spread is ±{sd:.4f}, so with {n} seeds anything smaller than "
+                    f"about {2*sem:.4f} is inside the noise. Add more seeds before "
+                    f"reading a winner into the curves.")
+            elif pval == pval:
+                verdict = "better than" if mean < 0 else "worse than"
+                st.success(f"Guided is significantly **{verdict}** random "
+                           f"(p={pval:.3f}, {n} seeds).")
+            st.caption("Per-seed gaps: " + ", ".join(f"{v:+.4f}" for v in per_seed))
+            st.markdown("---")
+            st.caption("The tables and charts below describe the **first seed only** "
+                       f"({RSEEDS[0]}); the detail tabs show that one trajectory.")
+
         st.subheader("Iteration-by-iteration results")
+        st.caption(
+            f"Headline numbers are reported against the **primary regime "
+            f"({R['primary']})**, whose guided model also drove the detection each "
+            f"round. Any other enabled regime rides along on the same selections.")
         cols = {"iteration": iters}
         for t in R["active"]:
             strat, regime = L.TRACKS[t]
             cols[f"{strat}_{regime}_MAE"] = np.round(H[t]["mae"], 4)
         if cfg["radius"] > 0:
-            cols["guided_err_in"] = np.round(H["gacc"]["err_in"], 4)
-            cols["random_err_in"] = np.round(H["racc"]["err_in"], 4)
-            cols["guided_err_out"] = np.round(H["gacc"]["err_out"], 4)
-            cols["random_err_out"] = np.round(H["racc"]["err_out"], 4)
-        cols["guided_train_pts"] = H["gacc"]["n_train"]
+            cols["guided_err_in"] = np.round(H[GK]["err_in"], 4)
+            cols["random_err_in"] = np.round(H[RK]["err_in"], 4)
+            cols["guided_err_out"] = np.round(H[GK]["err_out"], 4)
+            cols["random_err_out"] = np.round(H[RK]["err_out"], 4)
+        cols["guided_train_pts"] = H[GK]["n_train"]
         df = pd.DataFrame(cols)
         st.dataframe(df, width='stretch', hide_index=True)
 
@@ -579,8 +754,9 @@ with tabs[4]:
                        "the final value when the curves cross.")
         m3.metric("Iterations guided led", f"{summ['win_rate_iters']*100:.0f}%")
         m4.metric("Best iteration (guided)", summ["best_iter_guided"],
-                  help="Where guided accumulative reached its lowest MAE. Earlier than "
-                       "K means the loop overshot and should have stopped.")
+                  help="Where the primary guided track reached its lowest MAE. "
+                       "Earlier than K means the loop overshot and should have "
+                       "stopped.")
 
         verdict = ("**ahead of** the random baseline ✅" if summ["auc_gap_mae"] < 0
                    else "**behind** the random baseline ⚠️")
@@ -604,7 +780,7 @@ with tabs[4]:
                 f"paper attributed to over-concentration, now measured directly rather "
                 f"than inferred."
             )
-        if "gnew" in H and "gsca" in H:
+        if "gnew" in H and "gsca" in H and "gacc" in H:
             gsca, gnew = H["gsca"]["mae"][-1], H["gnew"]["mae"][-1]
             fair = ("**confirms the distribution matters** ✅" if gsca < gnew
                     else "does not separate from new-only here ⚠️")
@@ -621,7 +797,7 @@ with tabs[4]:
             lines.append(
                 f"- **Staging** — the budget- and compute-matched single-shot guided "
                 f"model reached **{ss['guided']['mae']:.4f}** against the loop's "
-                f"**{H['gacc']['mae'][-1]:.4f}**, so iterating was {better} spending "
+                f"**{H[GK]['mae'][-1]:.4f}**, so iterating was {better} spending "
                 f"the same budget at once (Δ {stg:+.4f}). The random single-shot "
                 f"reference is **{ss['random']['mae']:.4f}**."
             )

@@ -22,8 +22,8 @@
     ],
     "regimes": [
       [
-        "accumulative",
         "new-only",
+        "accumulative",
         "scaled-accum"
       ]
     ],

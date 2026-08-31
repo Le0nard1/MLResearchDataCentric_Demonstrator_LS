@@ -1,0 +1,49 @@
+{
+  "name": "iter_es_normal",
+  "description": "COMPANION-PROTOCOL SETTING 1 (STANDARD): the three mix policies with early stopping restored - the companion paper's own retraining protocol, which the round-1 probe showed is what makes the single-round advantage visible (iteration-1 gap -0.128 vs -0.002 under the fixed 400-epoch budget that lets both arms converge and wash it out). Operating point otherwise unchanged (sigma 0.5, alpha0 0.5, 100 points/round), K=8, 15 seeds.",
+  "secs_per_run": 8.0,
+  "detectors": [
+    "Quantile Regression"
+  ],
+  "grid": {
+    "mix_schedule": [
+      "Constant",
+      "Exponential decay",
+      "Adaptive (weakspot severity)"
+    ],
+    "mix_ratio": [
+      0.5
+    ],
+    "mix_rate": [
+      0.1
+    ],
+    "early_stopping": [
+      true
+    ],
+    "n_iterations": [
+      8
+    ],
+    "regimes": [
+      [
+        "new-only"
+      ]
+    ],
+    "seed": [
+      42,
+      0,
+      7,
+      1,
+      3,
+      5,
+      11,
+      17,
+      23,
+      99,
+      2,
+      4,
+      6,
+      8,
+      13
+    ]
+  }
+}

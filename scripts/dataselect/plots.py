@@ -145,3 +145,83 @@ def plot_training_points(X_train, y_train, X_sel, center, radius,
                     bgcolor="rgba(255,255,255,0.8)"),
     )
     return fig
+
+# Both landscape views are read *through* their colour scale (dark is low error; blue
+# is error removed), and Streamlit's chart theme rewrites colour scales - so the page
+# renders them with ``theme=None``. That in turn means the figure supplies its own
+# chrome, and it has to sit on a page that may be light or dark: hence transparent
+# backgrounds and a mid grey that stays legible either way.
+_GREY = "#8a8f98"
+_GRID = "rgba(136,136,136,0.28)"
+
+
+def _layout(fig, title, height):
+    """Shared chrome for the two landscape views: square, theme-agnostic, legend out."""
+    # These panels sit three to a row in Streamlit columns of unpredictable width, so
+    # the unit square cannot be kept exactly square without either padding the range
+    # or collapsing the plot area. It is left to fill its panel; the height below and
+    # the shared colour bar (drawn once per row) keep the distortion mild.
+    axis = dict(range=[0, 1], showgrid=True, gridcolor=_GRID,
+                zeroline=False, linecolor=_GRID, ticks="outside", tickcolor=_GRID)
+    fig.update_layout(
+        title=title, template="plotly_white", height=height,
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color=_GREY),
+        margin=dict(l=50, r=10, t=50, b=60),
+        xaxis=dict(title="x₁ (norm)", **axis),
+        yaxis=dict(title="x₂ (norm)", **axis),
+        # Below the plot rather than inside it: these panels are shown three to a row
+        # and an inset legend covers the corner of the map it sits on.
+        legend=dict(orientation="h", x=0, y=-0.18, xanchor="left", yanchor="top"),
+    )
+    return fig
+
+
+def plot_error_landscape(xx, yy, Z, center, radius, title="Error landscape",
+                         zmin=None, zmax=None, height=360, colorbar_title=None,
+                         showscale=True):
+    """Dense-grid absolute-error landscape of one model over the unit square.
+
+    Unlike ``plot_ground_truth_error`` (a scatter of the evaluation points) this is
+    the model's error evaluated on a regular grid against the noiseless ground truth,
+    so the three landscapes of a round can be put side by side and subtracted. Pass a
+    common ``zmin``/``zmax`` to all three so they share one colour scale.
+    """
+    fig = go.Figure(go.Heatmap(
+        x=xx[0], y=yy[:, 0], z=np.asarray(Z).reshape(xx.shape),
+        colorscale="Inferno", zmin=zmin, zmax=zmax, zsmooth="best",
+        showscale=showscale, colorbar=dict(title=colorbar_title or "|ŷ − f|"),
+    ))
+    if radius and radius > 0:
+        cx, cy = _circle_xy(center, radius)
+        fig.add_trace(go.Scatter(x=cx, y=cy, mode="lines", name="Induced weakspot",
+                                 line=dict(color="red", width=2, dash="dash")))
+    _layout(fig, title, height)
+    return fig
+
+
+def plot_landscape_diff(xx, yy, D, center, radius, title="Δ error",
+                        zabs=None, height=360, ellipse=None, showscale=True):
+    """Difference of two error landscapes on a diverging scale centred at zero.
+
+    Blue = error removed, red = error added. ``zabs`` fixes the symmetric limit so
+    several difference maps can share one scale; ``ellipse`` optionally overlays the
+    detected weakspot extent.
+    """
+    D = np.asarray(D).reshape(xx.shape)
+    z = float(zabs) if zabs else float(np.percentile(np.abs(D), 99)) or 1e-6
+    fig = go.Figure(go.Heatmap(
+        x=xx[0], y=yy[:, 0], z=D, colorscale="RdBu", reversescale=True,
+        zmin=-z, zmax=z, zmid=0, zsmooth="best",
+        showscale=showscale, colorbar=dict(title="Δ error"),
+    ))
+    if radius and radius > 0:
+        cx, cy = _circle_xy(center, radius)
+        fig.add_trace(go.Scatter(x=cx, y=cy, mode="lines", name="Induced weakspot",
+                                 line=dict(color="red", width=2, dash="dash")))
+    if ellipse is not None:
+        fig.add_trace(go.Scatter(
+            x=ellipse["ellipse_x"], y=ellipse["ellipse_y"], mode="lines",
+            name="Detected weakspot", line=dict(color="#00d0ff", width=2)))
+    _layout(fig, title, height)
+    return fig

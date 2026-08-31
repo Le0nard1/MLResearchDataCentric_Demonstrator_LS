@@ -1,0 +1,44 @@
+{
+  "name": "iter_mix_adaptation",
+  "description": "MIX ADAPTATION - the direct test of the hypothesis that the detected weakspot is effectively gone after the first iteration, so a CONSTANT rehearsal mix keeps concentrating budget on noise while the random arm accumulates coverage. Sweeps every alpha schedule at K=8: Constant (the failing default), Linear decay and Exponential decay at rate 0.5 (front-load the focus), and the two Adaptive gates (severity: alpha scales with how much of the initial in/out error contrast is left; size: alpha scales with how localised the detected region is) - the adaptive variants are exactly 'give up the focus once the weakspot has healed'. Crossed with starting mix 0.5 and 1.0. If the hypothesis is right, the schedules that dump alpha after round 1 should recover the random baseline's performance while keeping round 1's repair, and Constant should lose by the most at mix 1.0. New-only regime, warm-start, 10 seeds.",
+  "secs_per_run": 5.0,
+  "detectors": [
+    "Quantile Regression"
+  ],
+  "grid": {
+    "mix_schedule": [
+      "Constant",
+      "Linear decay",
+      "Exponential decay",
+      "Adaptive (weakspot severity)",
+      "Adaptive (weakspot size)"
+    ],
+    "mix_ratio": [
+      0.5,
+      1.0
+    ],
+    "mix_rate": [
+      0.5
+    ],
+    "n_iterations": [
+      8
+    ],
+    "regimes": [
+      [
+        "new-only"
+      ]
+    ],
+    "seed": [
+      42,
+      0,
+      7,
+      1,
+      3,
+      5,
+      11,
+      17,
+      23,
+      99
+    ]
+  }
+}

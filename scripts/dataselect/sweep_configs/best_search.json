@@ -1,0 +1,27 @@
+{
+  "name": "best_search",
+  "description": "Joint search for a ROBUST whole-area sweet spot after the 10-seed finding that the old anchor is a wash. Co-varies the axes the isolated sweeps flagged as decisive: undertrained init (iters_initial small, n_train small), wide selection kernel (sel_sigma ~0.5-1.0, the interior optimum), and mid rehearsal (mix_ratio 0.15-0.5), at the known-best gap radius 0.12. Three strong detectors, 5 seeds for the search (winner re-verified at 10 seeds after). 144 combos x 5 seeds = 720 configs x 3 detectors = 2160 rows.",
+  "secs_per_run": 1.6,
+  "detectors": [
+    "Local GPR (QR-localised)",
+    "RBF Interpolation",
+    "LOESS Local Regression"
+  ],
+  "grid": {
+    "n_bumps":        [5],
+    "noise_std":      [0.05],
+    "n_pool_total":   [2000],
+    "shift_strength": [0.0],
+    "radius":         [0.12],
+    "iters_initial":  [5, 8, 12, 20],
+    "n_train":        [100, 200],
+    "sel_sigma":      [0.5, 0.7, 1.0],
+    "n_select":       [100, 200],
+    "n_candidate":    [2000],
+    "sel_method":     ["Weakpoint distance"],
+    "mix_ratio":      [0.15, 0.3, 0.5],
+    "iters_retrain":  [400],
+    "warm_start":     [true],
+    "seed":           [42, 0, 7, 1, 3]
+  }
+}

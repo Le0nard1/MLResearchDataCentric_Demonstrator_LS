@@ -1,0 +1,53 @@
+{
+  "name": "iter20_schedules",
+  "description": "EXPERIMENT B - scheduled coverage, run long. Identical to iter20_anchor except the two coverage controls are now scheduled over the loop: the selection kernel WIDENS linearly (sigma_schedule 'Linear widen') while the rehearsal mix DECAYS linearly (mix_schedule 'Linear decay'), both at rate 0.5. Both schedules hand budget back to uniform coverage as the loop proceeds, which is the companion paper's named future work ('a schedule that relaxes focus as the weak region shrinks, expressible through either coverage control') - here through both at once. Tests whether relaxing the focus preserves the early advantage instead of letting it reverse.",
+  "secs_per_run": 9.0,
+  "detectors": [
+    "Quantile Regression"
+  ],
+  "grid": {
+    "sel_sigma": [
+      0.5
+    ],
+    "sigma_schedule": [
+      "Linear widen"
+    ],
+    "sigma_rate": [
+      0.5
+    ],
+    "mix_ratio": [
+      0.5
+    ],
+    "mix_schedule": [
+      "Linear decay"
+    ],
+    "mix_rate": [
+      0.5
+    ],
+    "n_iterations": [
+      20
+    ],
+    "regimes": [
+      [
+        "new-only"
+      ]
+    ],
+    "seed": [
+      42,
+      0,
+      7,
+      1,
+      3,
+      5,
+      11,
+      17,
+      23,
+      99,
+      2,
+      4,
+      6,
+      8,
+      13
+    ]
+  }
+}

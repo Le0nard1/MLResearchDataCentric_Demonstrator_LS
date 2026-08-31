@@ -26,6 +26,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
+from scripts.iterative import plots as IP
 from scripts.iterative.sweep import PARAM_FIELDS, RESULTS_DIR
 
 st.set_page_config(page_title="Iterative — Visualise Results", layout="wide")
@@ -150,6 +151,12 @@ METRIC_FAMILY = {
 }
 available_regimes = [r for r, (g, _) in REGIME_TRACKS.items() if f"{g}_mae" in df.columns
                      and df[f"{g}_mae"].notna().any()]
+# Offer the sweep's own primary regime first — it is the one whose guided model
+# drove the detection, so it is what the run was actually about.
+if "primary_regime" in df.columns and df["primary_regime"].notna().any():
+    _prim = str(df["primary_regime"].dropna().iloc[0])
+    if _prim in available_regimes:
+        available_regimes = [_prim] + [r for r in available_regimes if r != _prim]
 
 # Parameters that actually vary in this file — everything else is a constant of
 # the study and would only clutter the filters.
@@ -656,6 +663,53 @@ with tabs[7]:
         st.plotly_chart(_curve_figure(
             d[d["iteration"] > 0], {"det_iou": ("IoU @ q=0.90 ↑", "#1f77b4")},
             compare, "Overlap with the induced gap", "IoU"), width='stretch')
+
+        if {"det_cx", "det_cy"}.issubset(d.columns) and d["det_cx"].notna().any():
+            st.markdown("---")
+            st.subheader("Where the weakspot moved")
+            st.caption(
+                "One configuration's trajectory across the input square: the path of "
+                "the detected centre, with a dashed ellipse at each round showing the "
+                "region's extent and orientation. A run that keeps a tight region on "
+                "the induced gap looks nothing like one whose region balloons and "
+                "wanders — and the difference is invisible in the aggregate curves "
+                "above. Averaging centres across seeds would place the mean where no "
+                "run actually went, so this shows a single run.")
+            m1, m2 = st.columns(2)
+            keys = sorted(d["param_key"].unique())
+            pk = m1.selectbox("Configuration", keys, key="mig_key",
+                              format_func=lambda k: (k[:70] + "…") if len(k) > 70 else k)
+            sub_k = d[d["param_key"] == pk]
+            mth = m2.selectbox("Detector", sorted(sub_k["method"].unique()), key="mig_m")
+            sub = sub_k[(sub_k["method"] == mth) & (sub_k["iteration"] > 0)]
+            seeds_here = sorted(sub["seed"].unique()) if "seed" in sub.columns else []
+            sd = st.select_slider("Seed", seeds_here, value=seeds_here[0],
+                                  key="mig_seed") if len(seeds_here) > 1 else (
+                seeds_here[0] if seeds_here else None)
+            if sd is not None:
+                sub = sub[sub["seed"] == sd]
+            sub = sub.sort_values("iteration")
+            if len(sub):
+                det = {"cx": sub.det_cx.tolist(), "cy": sub.det_cy.tolist(),
+                       "smaj": sub.det_smaj.tolist(), "smin": sub.det_smin.tolist(),
+                       "angle": sub.det_angle.fillna(0.0).tolist(),
+                       "distance": sub.det_distance.tolist(),
+                       "iou": sub.det_iou.tolist(),
+                       "drift": sub.det_drift.tolist()}
+                centre = (float(sub.center_x.iloc[0]), float(sub.center_y.iloc[0]))
+                st.plotly_chart(
+                    IP.trajectory_figure(det, centre, float(sub.radius.iloc[0]),
+                                         title=f"Detected weakspot per round — "
+                                               f"{mth}, seed {sd}"),
+                    width='stretch')
+                k1, k2, k3 = st.columns(3)
+                k1.metric("Mean drift per round", f"{np.nanmean(det['drift']):.3f}",
+                          help="Distance the detected centre moved from the previous "
+                               "round. Large values mean the target is not stable.")
+                k2.metric("Distance: first → last",
+                          f"{det['distance'][0]:.3f} → {det['distance'][-1]:.3f}")
+                k3.metric("IoU: first → last",
+                          f"{det['iou'][0]:.3f} → {det['iou'][-1]:.3f}")
 
         st.markdown("---")
         st.caption(

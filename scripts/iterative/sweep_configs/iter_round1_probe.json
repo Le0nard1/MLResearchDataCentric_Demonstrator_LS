@@ -1,0 +1,35 @@
+{
+  "name": "iter_round1_probe",
+  "description": "ROUND-1 VISIBILITY PROBE: why does the loop's iteration 1 not show the companion paper's single-round whole-area win (~-0.25) at the same operating point? Candidate: the retraining budget. The companion protocol used early stopping, which keeps each retrain short; the loop retrains a fixed 400 epochs, long enough for both arms to converge on their 100 points and wash the placement advantage out. Crosses iters_retrain {100, 400} x early_stopping {on, off} at the static mix, K=8, 15 seeds; read the iteration-1 gap.",
+  "secs_per_run": 6.0,
+  "detectors": [
+    "Quantile Regression"
+  ],
+  "grid": {
+    "mix_schedule": [
+      "Constant"
+    ],
+    "mix_ratio": [
+      0.5
+    ],
+    "iters_retrain": [
+      100,
+      400
+    ],
+    "early_stopping": [
+      true,
+      false
+    ],
+    "n_iterations": [
+      8
+    ],
+    "regimes": [
+      [
+        "new-only"
+      ]
+    ],
+    "seed": [
+      42, 0, 7, 1, 3, 5, 11, 17, 23, 99, 2, 4, 6, 8, 13
+    ]
+  }
+}

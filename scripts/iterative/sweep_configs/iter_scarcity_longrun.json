@@ -1,0 +1,51 @@
+{
+  "name": "iter_scarcity_longrun",
+  "description": "SCARCITY LONG RUN - does the compounding guided advantage at pool_deficit 0.98 (see iter_scarcity_confirm) keep growing, saturate, or revert over a loop 2.5x longer? The winning cell (alpha 0.5, n_train 30, n_select 100) run to K=20 under the two policies that matter there: Constant (keep focusing - the deficit never heals) and the severity-adaptive gate (should keep alpha up on its own while the detected contrast persists). 15 seeds.",
+  "secs_per_run": 20.0,
+  "detectors": [
+    "Quantile Regression"
+  ],
+  "grid": {
+    "mix_schedule": [
+      "Constant",
+      "Adaptive (weakspot severity)"
+    ],
+    "mix_ratio": [
+      0.5
+    ],
+    "n_train": [
+      30
+    ],
+    "n_select": [
+      100
+    ],
+    "pool_deficit": [
+      0.98
+    ],
+    "n_iterations": [
+      20
+    ],
+    "regimes": [
+      [
+        "new-only"
+      ]
+    ],
+    "seed": [
+      42,
+      0,
+      7,
+      1,
+      3,
+      5,
+      11,
+      17,
+      23,
+      99,
+      2,
+      4,
+      6,
+      8,
+      13
+    ]
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "name": "iter_es_lowpretrain",
+  "description": "COMPANION-PROTOCOL SETTING 2 (LOW PRETRAINING): as iter_es_normal with the initial model trained for 3 epochs on 50 points. 15 seeds.",
+  "secs_per_run": 8.0,
+  "detectors": [
+    "Quantile Regression"
+  ],
+  "grid": {
+    "mix_schedule": [
+      "Constant",
+      "Exponential decay",
+      "Adaptive (weakspot severity)"
+    ],
+    "mix_ratio": [
+      0.5
+    ],
+    "mix_rate": [
+      0.1
+    ],
+    "early_stopping": [
+      true
+    ],
+    "n_iterations": [
+      8
+    ],
+    "regimes": [
+      [
+        "new-only"
+      ]
+    ],
+    "iters_initial": [
+      3
+    ],
+    "n_train": [
+      50
+    ],
+    "seed": [
+      42,
+      0,
+      7,
+      1,
+      3,
+      5,
+      11,
+      17,
+      23,
+      99,
+      2,
+      4,
+      6,
+      8,
+      13
+    ]
+  }
+}

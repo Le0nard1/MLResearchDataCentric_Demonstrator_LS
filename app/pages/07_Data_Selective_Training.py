@@ -35,8 +35,10 @@ from scripts.weakspot.plotting import (
     plot_comparison,
 )
 from scripts.dataselect import pipeline as P
+from scripts.dataselect import error_landscape as EL
 from scripts.dataselect.plots import (
     plot_landscape, plot_selection, plot_training_points,
+    plot_error_landscape, plot_landscape_diff,
 )
 
 st.set_page_config(page_title="Data-Selective Training", layout="wide")
@@ -101,6 +103,12 @@ n_train = st.sidebar.slider("Training points to use", 100, 3000, 800, 50,
 st.sidebar.subheader("5. Evaluation")
 n_eval = st.sidebar.slider("Evaluation points on landscape", 200, 3000, 1000, 100,
                            help="Uniform sample from the landscape (deployment distribution).")
+land_res = st.sidebar.slider("Error-landscape resolution", 20, 100,
+                             EL.LAND_RES_DEFAULT, 10,
+                             help="Grid the **Error Landscape** tab evaluates each "
+                                  "model on (against the noiseless ground truth). "
+                                  "Rendering only — the reported metrics still come "
+                                  "from the uniform evaluation sample above.")
 
 st.sidebar.subheader("6. Weakspot Identification")
 _dm = list(DETECTION_METHODS.keys())
@@ -312,6 +320,17 @@ if run_btn or st.session_state.pop("_trigger_run", False):
     extR, _cR, distR, iouR = _weakspot_metrics(
         surfR, xx, yy, gt_mask, center, has_ws=induce_ws)
 
+    # ---- ERROR LANDSCAPES ------------------------------------------------
+    # The evaluation above scores each model on a scattered uniform sample; here the
+    # same three models are evaluated on a dense regular grid against the noiseless
+    # ground truth, so the *shape* of the error can be compared and subtracted. This
+    # is what the Error Landscape tab draws.
+    with st.spinner("Evaluating the error landscape of all three models…"):
+        land_xx, land_yy, land_flat = EL.landscape_grid(land_res)
+        land0 = EL.error_landscape(model0, land_flat, n_bumps)
+        land1 = EL.error_landscape(model1, land_flat, n_bumps)
+        landR = EL.error_landscape(modelR, land_flat, n_bumps)
+
     st.session_state["dst"] = dict(
         xx=xx, yy=yy, grid_flat=grid_flat, gt_mask=gt_mask, true_grid=true_grid,
         center=center, radius=r_eff, has_ws=induce_ws,
@@ -330,6 +349,9 @@ if run_btn or st.session_state.pop("_trigger_run", False):
         # random baseline
         X_rand=X_rand, y_rand=y_rand, X_trR=X_trR, errR=errR, metricsR=metricsR,
         einR=einR, eoutR=eoutR, surfR=surfR, extR=extR, distR=distR, iouR=iouR,
+        # dense-grid error landscapes (initial / guided / random)
+        land_xx=land_xx, land_yy=land_yy,
+        land0=land0, land1=land1, landR=landR,
     )
 
 
@@ -561,6 +583,7 @@ center, radius = R["center"], R["radius"]
 tabs = st.tabs([
     "① Setup", "② Training", "③ Evaluation", "④ Weakspot ID",
     "⑤ Data Selection", "⑥ Retraining", "⑦ Re-Evaluation", "🧾 Overview",
+    "🗺️ Error Landscape",
 ])
 
 # ── ① SETUP ──────────────────────────────────────────────────
@@ -796,3 +819,191 @@ with tabs[7]:
         "The full parameter sweep over model state, selection σ, detector and "
         "training time is the next step — this page runs a single configuration."
     )
+
+# ── 🗺️ ERROR LANDSCAPE ───────────────────────────────────────
+with tabs[8]:
+    st.subheader("Error Landscape — Where the Improvement Actually Went")
+    st.caption(
+        "Every other tab reduces a round to numbers. This one keeps the **shape** of "
+        "the error: each of the three models is evaluated on a dense regular grid "
+        "against the noiseless ground truth, so the landscapes can be laid side by "
+        "side and, more usefully, **subtracted**. The difference maps answer the "
+        "question the summary table cannot — not *whether* an identical budget of new "
+        "points helped, but *where* it was spent."
+    )
+
+    if "land_xx" not in R:          # result from a run predating this tab
+        st.info("Re-run the pipeline to compute the error landscapes.")
+        st.stop()
+
+    lxx, lyy = R["land_xx"], R["land_yy"]
+    L0, L1, LR = R["land0"], R["land1"], R["landR"]
+    # One shared colour scale across the three absolute landscapes, so panels are
+    # comparable by eye; the 99th percentile keeps a single hot cell from flattening
+    # everything else.
+    vmax = float(np.percentile(np.concatenate([L0, L1, LR]), 99))
+    D1, DR, DH = L1 - L0, LR - L0, L1 - LR
+    # (guided − before) and (random − before) answer the same question and share a
+    # scale; the head-to-head is a much smaller quantity and keeps its own.
+    dabs = float(np.percentile(np.abs(np.concatenate([D1, DR])), 99))
+    habs = float(np.percentile(np.abs(DH), 99))
+
+    def _io(Z):
+        """Mean of a landscape inside / outside the induced weakspot."""
+        if not (R.get("has_ws", True) and radius > 0):
+            return float("nan"), float(np.mean(Z))
+        return EL.region_means(np.asarray(Z).reshape(lxx.shape), lxx, lyy,
+                               center, radius)
+
+    # ``theme=None`` on every chart below: Streamlit's chart theme rewrites
+    # colourscales, and these panels are read *through* their scale (dark is low
+    # error; blue is error removed), so the exact scale has to survive.
+    st.markdown("**Absolute error landscapes** (shared colour scale)")
+    c1, c2, c3 = st.columns(3)
+    # The colour bar is drawn once, on the last panel: the three share one scale, and
+    # repeating it three times only steals width from the maps.
+    for col, Z, ttl, key, bar in (
+        (c1, L0, "Before — initial model", "land_before", False),
+        (c2, L1, "After — weakspot-guided", "land_guided", False),
+        (c3, LR, "After — random baseline", "land_random", True),
+    ):
+        with col:
+            st.plotly_chart(
+                plot_error_landscape(lxx, lyy, Z, center, radius, title=ttl,
+                                     zmin=0.0, zmax=vmax, showscale=bar),
+                width='stretch', key=key, theme=None)
+            i, o = _io(Z)
+            st.caption(f"in weakspot **{i:.3f}** · outside **{o:.3f}**"
+                       if i == i else f"mean **{o:.3f}**")
+
+    st.markdown("---")
+    st.markdown(
+        "**Difference maps** — blue means error was *removed*, red that it was "
+        "*added*. The first two share a scale; the head-to-head is a smaller "
+        "quantity and is drawn on its own so it does not render as a blank."
+    )
+    d1, d2, d3 = st.columns(3)
+    for col, Z, ttl, zabs, key, ell, bar in (
+        (d1, D1, "Guided − before", dabs, "diff_guided", R["ext0"], False),
+        (d2, DR, "Random − before", dabs, "diff_random", None, True),
+        (d3, DH, "Guided − random (head-to-head)", habs, "diff_head", R["ext0"], True),
+    ):
+        with col:
+            st.plotly_chart(
+                plot_landscape_diff(lxx, lyy, Z, center, radius, title=ttl,
+                                    zabs=zabs, ellipse=ell, showscale=bar),
+                width='stretch', key=key, theme=None)
+            i, o = _io(Z)
+            st.caption(f"Δ in weakspot **{i:+.3f}** · outside **{o:+.3f}**"
+                       if i == i else f"mean Δ **{o:+.3f}**")
+
+    if R.get("has_ws", True) and radius > 0:
+        gi, go_ = _io(D1)
+        ri, ro = _io(DR)
+        hi, ho = _io(DH)
+        st.info(
+            f"Inside the induced weakspot the guided retrain removed **{-gi:.3f}** of "
+            f"absolute error against the baseline's **{-ri:.3f}**; outside it the two "
+            f"removed **{-go_:.3f}** and **{-ro:.3f}**. The head-to-head advantage is "
+            f"therefore **{-hi:.3f}** inside versus **{-ho:.3f}** outside — the "
+            f"targeting shows up as a *local* effect, which is exactly what a "
+            f"weakspot-guided selection is supposed to buy."
+        )
+
+    # ---- seed-averaged study (the paper figure) -------------------------
+    st.markdown("---")
+    st.markdown("#### Seed-averaged study")
+    st.caption(
+        "A single round is noisy — the initial model here is deliberately "
+        "undertrained, and its error map speckles. Averaging the same three "
+        "landscapes over many seeds (and, optionally, over the broad sweep's five "
+        "detectors) leaves only the systematic structure. This reproduces the "
+        "paper's error-landscape figure; the parameters come from the sidebar, so "
+        "the study follows whatever configuration is set above."
+    )
+    sc1, sc2 = st.columns([1, 2])
+    n_seeds_land = sc1.number_input("Seeds", 2, 100, 20, 1, key="land_seeds")
+    all_det = sc2.checkbox(
+        "Average over the broad sweep's five detectors "
+        "(otherwise use the sidebar's detector only)", value=False)
+    if st.button("🗺️ Run seed-averaged landscape study"):
+        dets = list(EL.BROAD_SWEEP_DETECTORS) if all_det else [R["detect_name"]]
+        seeds = [int(seed) + i for i in range(int(n_seeds_land))]
+        bar = st.progress(0.0, text="Running rounds…")
+        study = EL.run_study(
+            seeds, detectors=dets, land_res=int(land_res),
+            params=dict(
+                n_bumps=int(n_bumps), noise_std=float(noise_std),
+                n_pool_total=int(n_pool_total), shift_strength=float(shift_strength),
+                shift_center_x=float(scx), shift_center_y=float(scy),
+                shift_spread=float(shift_spread),
+                radius=float(radius) if induce_ws else 0.0,
+                center_x=float(center_x), center_y=float(center_y),
+                model_name=model_name, complexity=float(complexity),
+                iters_initial=int(iters_initial), n_train=int(n_train),
+                early_stopping=bool(early_stop),
+                n_eval=int(n_eval), grid_res=int(grid_res),
+                extract_q=float(extract_q),
+                sel_method=sel_method, sel_mode=sel_mode,
+                sel_sigma=float(sel_sigma), n_select=int(n_select),
+                n_candidate=int(n_candidate), mix_ratio=float(mix_ratio),
+                iters_retrain=int(iters_retrain),
+                warm_start=training_mode.startswith("Warm"),
+            ),
+            progress=lambda d, t: bar.progress(d / t, text=f"Round {d}/{t}"))
+        bar.empty()
+        st.session_state["dst_land_study"] = study
+
+    S = st.session_state.get("dst_land_study")
+    if S is not None:
+        summ = EL.summarise(S)
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Rounds", f"{summ['n_runs']} ({summ['n_seeds']} seeds)")
+        m2.metric("MAE — guided", f"{summ['mae_guided']:.3f}",
+                  f"{summ['mae_guided'] - summ['mae_init']:+.3f} vs initial",
+                  delta_color="inverse")
+        m3.metric("MAE — random", f"{summ['mae_base']:.3f}",
+                  f"{summ['mae_base'] - summ['mae_init']:+.3f} vs initial",
+                  delta_color="inverse")
+        m4.metric("Guided − random", f"{summ['gap']:+.3f}",
+                  f"±{summ['gap_ci']:.3f} · wins {summ['win_rate']:.0%}",
+                  delta_color="off")
+
+        sxx, syy = S["land_xx"], S["land_yy"]
+        svmax = float(np.percentile(
+            np.concatenate([S["init"].ravel(), S["guided"].ravel(),
+                            S["random"].ravel()]), 99))
+        sdabs = float(np.percentile(
+            np.abs(np.concatenate([S["d_guided"].ravel(),
+                                   S["d_random"].ravel()])), 99))
+        shabs = float(np.percentile(np.abs(S["d_head"].ravel()), 99))
+        a1, a2, a3 = st.columns(3)
+        for col, Z, ttl, key, bar in (
+            (a1, S["init"], "Mean error — before", "sland_before", False),
+            (a2, S["guided"], "Mean error — guided", "sland_guided", False),
+            (a3, S["random"], "Mean error — random", "sland_random", True),
+        ):
+            with col:
+                st.plotly_chart(
+                    plot_error_landscape(sxx, syy, Z, S["center"], S["radius"],
+                                         title=ttl, zmin=0.0, zmax=svmax,
+                                         showscale=bar),
+                    width='stretch', key=key, theme=None)
+        b1, b2, b3 = st.columns(3)
+        for col, Z, ttl, zabs, key, bar in (
+            (b1, S["d_guided"], "Guided − before", sdabs, "sdiff_guided", False),
+            (b2, S["d_random"], "Random − before", sdabs, "sdiff_random", True),
+            (b3, S["d_head"], "Guided − random", shabs, "sdiff_head", True),
+        ):
+            with col:
+                st.plotly_chart(
+                    plot_landscape_diff(sxx, syy, Z, S["center"], S["radius"],
+                                        title=ttl, zabs=zabs, showscale=bar),
+                    width='stretch', key=key, theme=None)
+        st.caption(
+            f"Detectors averaged over: {', '.join(S['detectors'])}. Mean detected-"
+            f"centre distance **{summ['distance']:.3f}**, IoU **{summ['iou']:.2f}**. "
+            f"Mean error inside the induced weakspot — initial "
+            f"**{summ['errin_init']:.3f}**, guided **{summ['errin_guided']:.3f}**, "
+            f"random **{summ['errin_base']:.3f}**."
+        )

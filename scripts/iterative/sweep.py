@@ -83,8 +83,10 @@ def _build_columns() -> list[str]:
     return (
         ["param_key", "sweep_config", "method", "iteration"]
         + list(PARAM_FIELDS)
-        + ["n_model_params", "lr_used", "mix_used", "sigma_used", "severity",
+        + ["primary_regime",
+           "n_model_params", "lr_used", "mix_used", "sigma_used", "severity",
            "det_distance", "det_iou", "det_drift",
+           "det_cx", "det_cy", "det_smaj", "det_smin", "det_angle", "det_area",
            "init_mae", "init_err_in", "init_err_out"]
         + track_cols
         + ["gap_mae", "gap_err_in", "gap_err_out",
@@ -214,9 +216,13 @@ def run_one(params: dict) -> list[dict]:
 
         H, S, D = res["tracks"], res["sched"], res["det"]
         ss = res.get("single_shot") or {}
-        init = {"init_mae": H["gacc"]["mae"][0],
-                "init_err_in": H["gacc"]["err_in"][0],
-                "init_err_out": H["gacc"]["err_out"][0]}
+        # Headline columns follow the run's PRIMARY regime, whose guided model also
+        # drove the detection — so gap_mae / forget_* always describe the pair the
+        # experiment is actually about, whichever regimes were enabled.
+        gk, rk = res["driver"]
+        init = {"init_mae": H[gk]["mae"][0],
+                "init_err_in": H[gk]["err_in"][0],
+                "init_err_out": H[gk]["err_out"][0]}
         param_cols = {k: _norm(cfg.get(k)) for k in PARAM_FIELDS}
         n_par = M.n_parameters(cfg["arch"], float(cfg["complexity"]))
 
@@ -224,6 +230,7 @@ def run_one(params: dict) -> list[dict]:
             row = {
                 "param_key": pkey, "sweep_config": SWEEP_CONFIG_NAME,
                 "method": name, "iteration": i, **param_cols,
+                "primary_regime": res["primary"],
                 "n_model_params": n_par, **init,
                 "ss_guided_mae": _nan(ss.get("guided", {}).get("mae")),
                 "ss_random_mae": _nan(ss.get("random", {}).get("mae")),
@@ -236,20 +243,23 @@ def run_one(params: dict) -> list[dict]:
                            sigma_used=_nan(S["sigma"][j]),
                            severity=_nan(S["severity"][j]),
                            det_distance=_nan(D["distance"][j]),
-                           det_iou=_nan(D["iou"][j]), det_drift=_nan(D["drift"][j]))
+                           det_iou=_nan(D["iou"][j]), det_drift=_nan(D["drift"][j]),
+                           det_cx=_nan(D["cx"][j]), det_cy=_nan(D["cy"][j]),
+                           det_smaj=_nan(D["smaj"][j]), det_smin=_nan(D["smin"][j]),
+                           det_angle=_nan(D["angle"][j]), det_area=_nan(D["area"][j]))
             for t in TRACKS:
                 if t not in H:
                     continue
                 for m in _TRACK_METRICS:
                     row[f"{t}_{m}"] = _nan(H[t][m][i])
             row.update(
-                gap_mae=_nan(H["gacc"]["mae"][i] - H["racc"]["mae"][i]),
-                gap_err_in=_nan(H["gacc"]["err_in"][i] - H["racc"]["err_in"][i]),
-                gap_err_out=_nan(H["gacc"]["err_out"][i] - H["racc"]["err_out"][i]),
-                d_mae_guided=_nan(H["gacc"]["mae"][i] - init["init_mae"]),
-                d_mae_random=_nan(H["racc"]["mae"][i] - init["init_mae"]),
-                forget_guided=_nan(H["gacc"]["err_out"][i] - init["init_err_out"]),
-                forget_random=_nan(H["racc"]["err_out"][i] - init["init_err_out"]),
+                gap_mae=_nan(H[gk]["mae"][i] - H[rk]["mae"][i]),
+                gap_err_in=_nan(H[gk]["err_in"][i] - H[rk]["err_in"][i]),
+                gap_err_out=_nan(H[gk]["err_out"][i] - H[rk]["err_out"][i]),
+                d_mae_guided=_nan(H[gk]["mae"][i] - init["init_mae"]),
+                d_mae_random=_nan(H[rk]["mae"][i] - init["init_mae"]),
+                forget_guided=_nan(H[gk]["err_out"][i] - init["init_err_out"]),
+                forget_random=_nan(H[rk]["err_out"][i] - init["init_err_out"]),
             )
             rows.append(row)
     return rows

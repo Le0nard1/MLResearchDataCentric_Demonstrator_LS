@@ -1,0 +1,62 @@
+{
+  "name": "iter_showcase_search",
+  "description": "SHOWCASE SEARCH - the whole-area guided advantage under persistent scarcity is real but geometrically bounded: gap ~ area_frac x in-weakspot error cut, and at radius 0.25 the weakspot is only ~15% of the area, so the confirmed in-weakspot lead buys just ~-0.02 whole-area MAE. This sweep multiplies the bound instead of fighting it: a larger induced gap (radius 0.35, ~38% of the square) raises area_frac, a narrower selection kernel (sigma 0.15/0.3) concentrates the harvest on the rare in-gap candidates, and a higher mix (0.75) spends more of the round's budget on them - each crossed with the two policies that survive scarcity (Constant, Adaptive severity) at deficit 0.9 / 0.98. Fixed at the confirmed cell otherwise: n_train 30, n_select 100, K=8, 15 seeds.",
+  "secs_per_run": 8.0,
+  "detectors": [
+    "Quantile Regression"
+  ],
+  "grid": {
+    "mix_schedule": [
+      "Constant",
+      "Adaptive (weakspot severity)"
+    ],
+    "mix_ratio": [
+      0.5,
+      0.75
+    ],
+    "radius": [
+      0.25,
+      0.35
+    ],
+    "sel_sigma": [
+      0.15,
+      0.3,
+      0.5
+    ],
+    "pool_deficit": [
+      0.9,
+      0.98
+    ],
+    "n_train": [
+      30
+    ],
+    "n_select": [
+      100
+    ],
+    "n_iterations": [
+      8
+    ],
+    "regimes": [
+      [
+        "new-only"
+      ]
+    ],
+    "seed": [
+      42,
+      0,
+      7,
+      1,
+      3,
+      5,
+      11,
+      17,
+      23,
+      99,
+      2,
+      4,
+      6,
+      8,
+      13
+    ]
+  }
+}

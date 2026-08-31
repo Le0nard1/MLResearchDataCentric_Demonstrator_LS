@@ -1,0 +1,27 @@
+{
+  "name": "best_verify",
+  "description": "10-seed verification of the joint-search winner (undertrained regime): iters_initial 12, n_train 100, n_select 100, mix_ratio 0.5, radius 0.12; sel_sigma swept over the top region {0.5,0.7,1.0} to lock the kernel width. 3 sigma x 10 seeds x 3 detectors = 90 rows.",
+  "secs_per_run": 1.6,
+  "detectors": [
+    "Local GPR (QR-localised)",
+    "RBF Interpolation",
+    "LOESS Local Regression"
+  ],
+  "grid": {
+    "n_bumps":        [5],
+    "noise_std":      [0.05],
+    "n_pool_total":   [2000],
+    "shift_strength": [0.0],
+    "radius":         [0.12],
+    "iters_initial":  [12],
+    "n_train":        [100],
+    "sel_sigma":      [0.5, 0.7, 1.0],
+    "n_select":       [100],
+    "n_candidate":    [2000],
+    "sel_method":     ["Weakpoint distance"],
+    "mix_ratio":      [0.5],
+    "iters_retrain":  [400],
+    "warm_start":     [true],
+    "seed":           [42, 0, 7, 1, 3, 5, 11, 17, 23, 99]
+  }
+}

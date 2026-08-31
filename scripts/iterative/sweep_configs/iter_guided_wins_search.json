@@ -1,0 +1,55 @@
+{
+  "name": "iter_guided_wins_search",
+  "description": "GUIDED-WINS SEARCH - the storyline's final act: under which combination of (a) weaker pretraining and (b) candidate scarcity do the four mix policies (Constant, Exponential dump x0.1 = 'guided round 1, random after', Adaptive severity, Adaptive size) turn recovery-to-parity into an actual across-the-loop guided win? Undertraining alone does NOT rescue constant mix (iter20_anchor_i3n50), so the bet is the interaction: a weak initial model leaves a deficit too large to fix in one round, a small per-round budget (n_select 30) heals it slowly, and a thinned pool (deficit 0.9 / 0.98 -> only ~40 / ~8 of 2000 candidates per round inside the gap) means uniform sampling almost never finds gap points while a guided kernel harvests them every round - a persistent informational advantage rather than a one-shot repair. deficit 0.0 is the control. New-only regime, warm-start, K=8, 5 seeds first pass.",
+  "secs_per_run": 5.0,
+  "detectors": [
+    "Quantile Regression"
+  ],
+  "grid": {
+    "mix_schedule": [
+      "Constant",
+      "Exponential decay",
+      "Adaptive (weakspot severity)",
+      "Adaptive (weakspot size)"
+    ],
+    "mix_ratio": [
+      0.5,
+      1.0
+    ],
+    "mix_rate": [
+      0.1
+    ],
+    "iters_initial": [
+      3,
+      12
+    ],
+    "n_train": [
+      30,
+      100
+    ],
+    "n_select": [
+      30,
+      100
+    ],
+    "pool_deficit": [
+      0.0,
+      0.9,
+      0.98
+    ],
+    "n_iterations": [
+      8
+    ],
+    "regimes": [
+      [
+        "new-only"
+      ]
+    ],
+    "seed": [
+      42,
+      0,
+      7,
+      1,
+      3
+    ]
+  }
+}
