@@ -3,13 +3,11 @@ Generate the error-landscape figure for the paper
 (``figures/fig_error_landscape.png``, referenced from the closing experiment
 section of ``main.tex``).
 
-The figure tells one round of the method as a sequence of maps over the same input
-square, all averaged over seeds and over the broad sweep's five detectors:
+The figure tells one round of the method as four maps over the same input square,
+averaged over seeds and computed with a single detector:
 
-    top row     setup / induced gap -> error before -> error after guided
-                -> error after the random baseline   (one shared error scale)
-    bottom row  detected weakspot -> guided minus random -> guided minus before
-                -> random minus before               (one shared difference scale)
+    (a) error before      (b) detected weakspot
+    (c) guided - before   (d) random - before      ((c) and (d) share one scale)
 
 The difference maps are the point of the figure: they show *where* each retraining
 spent an identical budget of new points. Guided selection empties the gap; the
@@ -59,6 +57,12 @@ SEEDS = [42, 0, 7, 1, 3, 5, 11, 17, 23, 99, 2, 4, 6, 8, 13, 19, 29, 37, 53, 71,
 C_TRUE = "#d62728"      # induced (ground-truth) weakspot
 C_DET = "#00d0ff"       # detected weakspot
 
+# One detector carries the whole study, so the figure shows what a single, concrete
+# identification does rather than an average over methods that no practitioner runs.
+# Of the broad sweep's five this is the one whose whole-area advantage lies closest to
+# their mean (-0.062 against -0.069), so it is representative rather than favourable.
+PAPER_DETECTOR = "kNN Performance Mapping"
+
 
 def parse_args(argv=None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__,
@@ -71,7 +75,7 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--seeds", type=int, default=len(SEEDS),
                    help=f"how many seeds to average over (default: {len(SEEDS)})")
     p.add_argument("--detector", action="append", default=None,
-                   help="detector to use; repeatable. Default: the broad sweep's five.")
+                   help=f"detector to use; repeatable. Default: {PAPER_DETECTOR}.")
     p.add_argument("--land-res", type=int, default=EL.LAND_RES_DEFAULT,
                    help=f"rendering-grid resolution (default: {EL.LAND_RES_DEFAULT})")
     p.add_argument("--dpi", type=int, default=200, help="output DPI (default: 200)")
@@ -139,22 +143,19 @@ def _annotate(ax, land, study, fmt="{:+.2f}", inside_only=False):
                       alpha=0.88, lw=0.5))
 
 
-def panel_detected(ax, study):
-    """Mean detector surface, the true gap, and where each run placed the weakspot."""
+def panel_detected(ax, study, title):
+    """Mean detector surface with the detected extent and the induced weakspot."""
     xx = study["xx"]
     im = ax.imshow(study["surf_mean"].reshape(xx.shape), origin="lower",
                    extent=(0, 1, 0, 1), cmap="magma", vmin=0, vmax=1,
                    interpolation="bilinear")
-    dc = study["det_centers"]
-    ax.scatter(dc[:, 0], dc[:, 1], s=9, c=C_DET, edgecolors="k", linewidths=0.25,
-               alpha=0.85, zorder=6, label="detected centres")
     ext = study["rep"]["ext"]
     if ext is not None:
-        ax.plot(ext["ellipse_x"], ext["ellipse_y"], color=C_DET, lw=1.6, zorder=6,
+        ax.plot(ext["ellipse_x"], ext["ellipse_y"], color=C_DET, lw=1.8, zorder=6,
                 label="detected extent (2$\\sigma$)")
-    _true_circle(ax, study["center"], study["radius"], label="induced gap")
-    _frame(ax, "(e) Detected weakspot")
-    ax.legend(loc="lower left", fontsize=6.5, framealpha=0.85, handlelength=1.4,
+    _true_circle(ax, study["center"], study["radius"], label="induced weakspot")
+    _frame(ax, title)
+    ax.legend(loc="lower left", fontsize=7, framealpha=0.85, handlelength=1.4,
               borderpad=0.3)
     ax.text(0.985, 0.015,
             f"distance {np.nanmean(study['distance']):.3f}\n"
@@ -169,61 +170,62 @@ def panel_detected(ax, study):
 # -------------------------------------------------------------
 # The figure
 # -------------------------------------------------------------
+def _whole_bounds(*maps, symmetric: bool = False, q: float = 99.0):
+    """Colour-bar limits rounded outwards to whole numbers, with integer ticks.
+
+    The bars are read off the page rather than measured, so they start and end on a
+    whole number instead of on whatever percentile the data happen to give.
+    """
+    v = float(np.percentile(np.abs(np.concatenate([m.ravel() for m in maps])), q))
+    hi = max(1.0, float(np.ceil(v - 1e-9)))
+    if symmetric:
+        return -hi, hi, np.arange(-hi, hi + 0.5, 1.0)
+    return 0.0, hi, np.arange(0.0, hi + 0.5, 1.0)
+
+
 def render(study: dict, out: Path, dpi: int = 200) -> Path:
+    """Four panels: the error before, what the detector found, and what each
+    retraining changed. (c) and (d) share one scale so the two arms are comparable."""
     c, r = study["center"], study["radius"]
-    err_maps = (study["init"], study["guided"], study["random"])
-    vmax = float(np.percentile(np.concatenate([m.ravel() for m in err_maps]), 99))
-    # (g) and (h) answer the same question ("what did this retraining remove?") and so
-    # must share a scale. (f) is a different question of a much smaller magnitude, and
-    # on that shared scale it would render as an uninformative blank, so it keeps its
-    # own - stated in the caption and marked by its own colour bar.
-    pct = lambda *ms: float(np.percentile(
-        np.abs(np.concatenate([m.ravel() for m in ms])), 99))
-    dmax = pct(study["d_guided"], study["d_random"])
-    hmax = pct(study["d_head"])
 
-    fig, axes = plt.subplots(2, 4, figsize=(15.0, 7.4), constrained_layout=True)
+    e_lo, e_hi, e_ticks = _whole_bounds(study["init"])
+    d_lo, d_hi, d_ticks = _whole_bounds(study["d_guided"], study["d_random"],
+                                        symmetric=True)
 
-    # ---- top row: the three absolute error landscapes, one shared scale ----
-    panel_setup(axes[0, 0], study)
-    titles = ("(b) Error before (initial model)",
-              "(c) Error after guided selection",
-              "(d) Error after random baseline")
-    ims = []
-    for ax, Z, t in zip(axes[0, 1:], err_maps, titles):
-        ims.append(_map(ax, Z, "inferno", 0.0, vmax))
-        _true_circle(ax, c, r)
-        _frame(ax, t)
-        _annotate(ax, Z, study, fmt="{:.2f}")
-    cb = fig.colorbar(ims[-1], ax=list(axes[0, 1:]), location="right",
-                      fraction=0.045, pad=0.015)
+    fig, axes = plt.subplots(2, 2, figsize=(8.4, 8.0), constrained_layout=True)
+
+    # ---- (a) the error landscape before selection --------------------------
+    ax = axes[0, 0]
+    im_e = _map(ax, study["init"], "inferno", e_lo, e_hi)
+    _true_circle(ax, c, r, label="induced weakspot")
+    _frame(ax, "(a) Error before selection")
+    _annotate(ax, study["init"], study, fmt="{:.2f}")
+    ax.legend(loc="lower left", fontsize=7, framealpha=0.85, handlelength=1.4,
+              borderpad=0.3)
+    cb = fig.colorbar(im_e, ax=ax, location="right", fraction=0.046, pad=0.02,
+                      ticks=e_ticks)
     cb.set_label("mean absolute error  $|\\hat{f}-f|$", fontsize=9)
     cb.ax.tick_params(labelsize=8)
 
-    # ---- bottom row: the detected region and the three difference maps ----
-    panel_detected(axes[1, 0], study)      # surface is min-max normalised: no bar
+    # ---- (b) what the detector found ---------------------------------------
+    im_d = panel_detected(axes[0, 1], study, "(b) Detected weakspot")
+    cbd = fig.colorbar(im_d, ax=axes[0, 1], location="right", fraction=0.046,
+                       pad=0.02, ticks=[0, 1])
+    cbd.set_label("detection surface (normalised)", fontsize=9)
+    cbd.ax.tick_params(labelsize=8)
 
-    im_h = _map(axes[1, 1], study["d_head"], "RdBu_r", -hmax, hmax)
-    _true_circle(axes[1, 1], c, r)
-    _frame(axes[1, 1], "(f) Guided $-$ random")
-    _annotate(axes[1, 1], study["d_head"], study)
-    cbh = fig.colorbar(im_h, ax=axes[1, 1], location="right", fraction=0.045,
-                       pad=0.015)
-    cbh.set_label("$\\Delta$ (own scale)", fontsize=8)
-    cbh.ax.tick_params(labelsize=7)
-
-    dims = []
-    for ax, Z, t in zip(axes[1, 2:], (study["d_guided"], study["d_random"]),
-                        ("(g) Guided $-$ before", "(h) Random $-$ before")):
-        dims.append(_map(ax, Z, "RdBu_r", -dmax, dmax))
+    # ---- (c), (d) what each retraining changed, on one shared scale ---------
+    ims = []
+    for ax, Z, t in zip(axes[1, :], (study["d_guided"], study["d_random"]),
+                        ("(c) Guided $-$ before", "(d) Random $-$ before")):
+        ims.append(_map(ax, Z, "RdBu_r", d_lo, d_hi))
         _true_circle(ax, c, r)
         _frame(ax, t)
         _annotate(ax, Z, study)
-    cbd = fig.colorbar(dims[-1], ax=list(axes[1, 2:]), location="right",
-                       fraction=0.045, pad=0.015)
-    cbd.set_label("$\\Delta$ error   (blue: error removed, red: error added)",
-                  fontsize=9)
-    cbd.ax.tick_params(labelsize=8)
+    cbg = fig.colorbar(ims[-1], ax=list(axes[1, :]), location="right",
+                       fraction=0.046, pad=0.02, ticks=d_ticks)
+    cbg.set_label("$\\Delta$ error   (blue: error removed, red: added)", fontsize=9)
+    cbg.ax.tick_params(labelsize=8)
 
     for ax in axes[:, 0]:
         ax.set_ylabel("$x_2$", fontsize=9)
@@ -255,7 +257,7 @@ def report(study: dict) -> dict:
 
 def main(argv=None) -> int:
     args = parse_args(argv)
-    detectors = args.detector or list(EL.BROAD_SWEEP_DETECTORS)
+    detectors = args.detector or [PAPER_DETECTOR]
     seeds = SEEDS[:max(1, min(args.seeds, len(SEEDS)))]
     n_runs = len(seeds) * len(detectors)
 
