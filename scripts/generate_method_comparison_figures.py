@@ -27,11 +27,15 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pandas as pd
 
-CSV_PATH = Path("data/experiment_results/weakspot_experiment/sweep_results.csv")
-OUT_DIR = Path(
-    "Documents/Paper_Advanced EnsembleMethods/"
-    "Paper_Advanced-Ensembles-for-Weakspot-Identification/figures"
-)
+# Anchored to this file, not to the working directory: ``Documents`` is a sibling
+# of ``Application``, so a path relative to the cwd silently creates a stray tree
+# when the script is launched from inside ``Application``.
+_APP_ROOT = Path(__file__).resolve().parents[1]           # .../Application
+_REPO_ROOT = _APP_ROOT.parent                             # .../MS_Research_Demonstrator
+
+CSV_PATH = _APP_ROOT / "data/experiment_results/weakspot_experiment/sweep_results.csv"
+OUT_DIR = (_REPO_ROOT / "Documents/Paper_Advanced EnsembleMethods"
+           / "Paper_Advanced-Ensembles-for-Weakspot-Identification/figures")
 
 # Method tiers — must match scripts/weakspot/detection.py registry keys.
 BASE_METHODS = [
@@ -63,7 +67,7 @@ TIER.update({m: "Advanced" for m in ADVANCED_ENSEMBLES})
 TIER_COLOR = {"Base": "#ff7f0e", "Simple": "#888888", "Advanced": "#1f77b4"}
 
 # Fonts ~50% larger than the previous figures (which used ~10-12 pt).
-FS_TITLE, FS_LABEL, FS_TICK, FS_VALUE, FS_LEGEND = 17, 16, 15, 13, 14
+FS_LABEL, FS_TICK, FS_VALUE, FS_LEGEND = 16, 15, 13, 14
 PRIMARY = "iou_q90"
 
 
@@ -85,9 +89,13 @@ def _means(df: pd.DataFrame, methods: list[str]) -> pd.DataFrame:
 
 
 def _barh(stats: pd.DataFrame, value: str, *, ascending_is_better: bool,
-          xlabel: str, title: str, filename: str, height: float,
+          xlabel: str, filename: str, height: float,
           show_legend: bool) -> None:
-    """One horizontal bar chart. Best method is placed at the top."""
+    """One horizontal bar chart. Best method is placed at the top.
+
+    No in-image title: every figure here is consumed by ``main.tex``, where the
+    LaTeX caption names the plot, and a repeated title only wastes column height.
+    """
     # Sort so the best method ends up on top of the chart (after the y-axis is
     # inverted, index 0 is drawn at the top).
     ordered = stats.sort_values(value, ascending=ascending_is_better)
@@ -102,7 +110,6 @@ def _barh(stats: pd.DataFrame, value: str, *, ascending_is_better: bool,
     ax.set_yticklabels(methods, fontsize=FS_TICK)
     ax.invert_yaxis()  # best (first row) on top
     ax.set_xlabel(xlabel, fontsize=FS_LABEL)
-    ax.set_title(title, fontsize=FS_TITLE)
     ax.tick_params(axis="x", labelsize=FS_TICK)
     ax.grid(axis="x", color="lightgray", linewidth=0.7)
     ax.set_axisbelow(True)
@@ -168,8 +175,8 @@ def _sensitivity_line(df: pd.DataFrame, dim: str, xlabel: str,
                 marker=markers[i % len(markers)], markersize=8,
                 linewidth=2.2, alpha=0.9, label=m)
     ax.set_xlabel(xlabel, fontsize=FS_LABEL)
+    # Kept short: a longer label overflows the axes height once the title is gone.
     ax.set_ylabel("mean IoU @ q=0.90", fontsize=FS_LABEL)
-    ax.set_title(f"Mean IoU vs {xlabel} (higher is better)", fontsize=FS_TITLE)
     ax.tick_params(axis="both", labelsize=FS_TICK)
     ax.grid(color="lightgray", linewidth=0.7)
     ax.set_axisbelow(True)
@@ -194,21 +201,17 @@ def main() -> int:
     # --- Base methods: two simple comparative plots ---
     _barh(base, "dist", ascending_is_better=True,
           xlabel="mean centroid distance (lower is better)",
-          title="Base methods: localisation accuracy",
           filename="base_distance.png", height=4.2, show_legend=False)
     _barh(base, "iou", ascending_is_better=False,
           xlabel="mean IoU @ q=0.90 (higher is better)",
-          title="Base methods: region overlap",
           filename="base_iou.png", height=4.2, show_legend=False)
 
     # --- Advanced methods: same two metrics, all methods, coloured by tier ---
     _barh(allm, "dist", ascending_is_better=True,
           xlabel="mean centroid distance (lower is better)",
-          title="All methods: localisation accuracy",
           filename="advanced_distance.png", height=6.6, show_legend=True)
     _barh(allm, "iou", ascending_is_better=False,
           xlabel="mean IoU @ q=0.90 (higher is better)",
-          title="All methods: region overlap",
           filename="advanced_iou.png", height=6.6, show_legend=True)
 
     # --- Sensitivity line charts (Figs 7-9): mean IoU vs each swept parameter ---

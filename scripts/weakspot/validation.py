@@ -263,7 +263,11 @@ def render_alignment_figure(
             f"({model_name}, Gaussian bumps: n_bumps={n_bumps}, "
             f"noise sigma={noise_std})"
         )
-    fig.suptitle(title, fontsize=15)
+    # An explicit empty title suppresses the heading entirely: the paper's
+    # figures take theirs from the LaTeX caption, while the Streamlit app
+    # passes nothing and keeps the generated default.
+    if title:
+        fig.suptitle(title, fontsize=15)
     return fig
 
 
@@ -340,5 +344,9 @@ def render_alignment_delta_figure(
             f"({model_name}, Gaussian bumps: n_bumps={n_bumps}, "
             f"noise sigma={noise_std})"
         )
-    fig.suptitle(title, fontsize=15)
+    # An explicit empty title suppresses the heading entirely: the paper's
+    # figures take theirs from the LaTeX caption, while the Streamlit app
+    # passes nothing and keeps the generated default.
+    if title:
+        fig.suptitle(title, fontsize=15)
     return fig

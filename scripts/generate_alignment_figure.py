@@ -32,12 +32,14 @@ from scripts.weakspot.validation import (
     run_baseline_error_surface, render_alignment_delta_figure,
 )
 
-_FIG_DIR = (
-    "Documents/Paper_Advanced EnsembleMethods/"
-    "Paper_Advanced-Ensembles-for-Weakspot-Identification/figures/"
-)
-DEFAULT_OUT = Path(_FIG_DIR + "weakspot_alignment.png")
-DEFAULT_OUT_DELTA = Path(_FIG_DIR + "weakspot_alignment_delta.png")
+# Anchored to this file, not to the working directory: ``Documents`` is a sibling
+# of ``Application``, so a path relative to the cwd silently creates a stray tree
+# when the script is launched from inside ``Application``.
+_FIG_DIR = (Path(__file__).resolve().parents[2]
+            / "Documents/Paper_Advanced EnsembleMethods"
+            / "Paper_Advanced-Ensembles-for-Weakspot-Identification/figures")
+DEFAULT_OUT = _FIG_DIR / "weakspot_alignment.png"
+DEFAULT_OUT_DELTA = _FIG_DIR / "weakspot_alignment_delta.png"
 
 
 def parse_args(argv=None) -> argparse.Namespace:
@@ -87,6 +89,7 @@ def main(argv=None) -> int:
 
     fig = render_alignment_figure(
         panels, model_name=args.model, n_bumps=args.n_bumps, noise_std=args.noise_std,
+        title="",  # the LaTeX caption carries the title in the paper
     )
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
@@ -104,6 +107,7 @@ def main(argv=None) -> int:
     fig_delta = render_alignment_delta_figure(
         panels, baseline_raw, model_name=args.model,
         n_bumps=args.n_bumps, noise_std=args.noise_std,
+        title="",  # the LaTeX caption carries the title in the paper
     )
     args.out_delta.parent.mkdir(parents=True, exist_ok=True)
     fig_delta.savefig(args.out_delta, dpi=args.dpi, bbox_inches="tight")
