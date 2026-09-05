@@ -98,7 +98,25 @@ N_BOOT = 20000
 SEED = 0
 
 # Fonts matched to generate_method_comparison_figures.py.
-FS_LABEL, FS_TICK, FS_VALUE, FS_LEGEND = 16, 15, 12, 14
+# Drawn at final print size (3.5 in column), so these are the on-page point sizes.
+FS_LABEL, FS_TICK, FS_VALUE, FS_LEGEND = 7.0, 6.5, 6.0, 6.5
+
+# The full registry names do not fit a 3.5 in column once the axes are drawn.
+SHORT_NAME = {
+    "EVT × GPR (geometric)": "EVT × GPR",
+    "QR × GPR (geometric)": "QR × GPR",
+    "GPR/kNN (variance-weighted)": "GPR/kNN (var.-weighted)",
+    "GPR/kNN (disagreement-amplified)": "GPR/kNN (disagr.-ampl.)",
+    "Anchored GPR (QR prior)": "Anchored GPR",
+    "Gated GPR (QR anchor)": "Gated GPR",
+    "Local GPR (QR-localised)": "Local GPR",
+    "kNN Performance Mapping": "kNN Perf. Mapping",
+    "Peaks over Threshold (EVT)": "Peaks over Thresh. (EVT)",
+    "Gaussian Process Regression": "Gaussian Process Regr.",
+    "Polynomial Response Surface": "Polynomial Resp. Surface",
+    "Bayesian Optimization (EI)": "Bayesian Opt. (EI)",
+    "LOESS Local Regression": "LOESS",
+}
 
 
 def _load() -> pd.DataFrame:
@@ -189,71 +207,60 @@ def _fmt_p(p: float) -> str:
 
 def plot(stats_df: pd.DataFrame, ref_mean: float, n_config: int,
          n_cluster: int) -> Path:
-    """Forest plot, sized for a full-width (two-column) IEEE float.
+    """Forest plot sized for a SINGLE IEEE column (``figure``, 3.5 in wide).
 
-    16 labelled rows will not survive being scaled to a single 3.5 in column, so
-    the aspect ratio is chosen for ``figure*``: at 7 in wide the tick labels land
-    at roughly 9-10 pt. Win/loss and p live in a right-hand margin outside the
-    axes, so the plotting area carries only data.
+    Drawn at roughly its final print size so the type scales 1:1 rather than
+    being shrunk: at 3.5 in wide the labels stay near 7 pt. Win/loss counts and
+    the Holm p are deliberately not drawn -- they are columns of the results
+    table, and at this width the space is needed for the method labels.
     """
     ordered = stats_df.iloc[::-1].reset_index(drop=True)  # best at the top
     ypos = np.arange(len(ordered))
     colors = [TIER_COLOR[t] for t in ordered["tier"]]
 
-    # constrained_layout is off on purpose: the margin annotations are drawn with
-    # clip_on=False outside the axes and would not be accounted for by it.
-    fig, ax = plt.subplots(figsize=(12.0, 6.6))
-    fig.subplots_adjust(left=0.255, right=0.735, top=0.945, bottom=0.155)
+    fig, ax = plt.subplots(figsize=(3.5, 3.5))
+    fig.subplots_adjust(left=0.435, right=0.985, top=0.99, bottom=0.20)
 
-    ax.axvline(0.0, color="black", linewidth=1.4, linestyle="--", zorder=1)
+    ax.axvline(0.0, color="black", linewidth=0.9, linestyle="--", zorder=1)
     for y, row, color in zip(ypos, ordered.itertuples(), colors):
-        ax.plot([row.lo, row.hi], [y, y], color=color, linewidth=2.6,
+        ax.plot([row.lo, row.hi], [y, y], color=color, linewidth=1.3,
                 solid_capstyle="round", zorder=2)
         for cap in (row.lo, row.hi):
-            ax.plot([cap, cap], [y - 0.2, y + 0.2], color=color, linewidth=2.0,
-                    zorder=2)
-    ax.scatter(ordered["delta"], ypos, s=95, color=colors, edgecolor="black",
-               linewidth=0.9, zorder=3)
+            ax.plot([cap, cap], [y - 0.26, y + 0.26], color=color,
+                    linewidth=1.0, zorder=2)
+    ax.scatter(ordered["delta"], ypos, s=17, color=colors, edgecolor="black",
+               linewidth=0.4, zorder=3)
 
     ax.set_yticks(ypos)
-    ax.set_yticklabels(ordered["method"], fontsize=FS_TICK)
+    ax.set_yticklabels([SHORT_NAME.get(m, m) for m in ordered["method"]],
+                       fontsize=FS_TICK)
     ax.set_ylim(-0.7, len(ordered) - 0.3)
-    ax.set_xlabel(r"$\Delta$ mean IoU vs. Peaks over Threshold (EVT)"
-                  "\n" r"(right of 0 $=$ better than the strongest base method)",
-                  fontsize=FS_LABEL)
-    # No in-image title: the LaTeX caption carries it, and any title wide enough
-    # to be useful overruns the axes and collides with the margin headers.
-    ax.tick_params(axis="x", labelsize=FS_TICK)
-    ax.grid(axis="x", color="lightgray", linewidth=0.7)
+    ax.set_xlabel(r"$\Delta$ mean IoU vs. EVT (right of 0 $=$ better)",
+                  fontsize=FS_LABEL, labelpad=2)
+    # No in-image title: the LaTeX caption carries it.
+    # Few ticks: at 3.5 in the default locator packs the labels until they touch.
+    ax.xaxis.set_major_locator(plt.MaxNLocator(4))
+    ax.tick_params(axis="x", labelsize=FS_TICK, pad=1.5)
+    ax.tick_params(axis="y", length=2, pad=1.5)
+    ax.grid(axis="x", color="lightgray", linewidth=0.5)
     ax.set_axisbelow(True)
+    for side in ("top", "right"):
+        ax.spines[side].set_visible(False)
 
     span = float(ordered["hi"].max() - ordered["lo"].min())
-    ax.set_xlim(float(ordered["lo"].min()) - 0.05 * span,
-                float(ordered["hi"].max()) + 0.05 * span)
-
-    # Right margin: win/loss counts and the Holm-corrected significance.
-    for col, header, x in (("wl", "win/loss", 1.035), ("p", "Holm $p$", 1.30)):
-        ax.text(x, 1.012, header, transform=ax.transAxes, ha="left", va="bottom",
-                fontsize=FS_VALUE, style="italic", color="dimgray",
-                clip_on=False)
-    for y, row in zip(ypos, ordered.itertuples()):
-        yfrac = (y - ax.get_ylim()[0]) / (ax.get_ylim()[1] - ax.get_ylim()[0])
-        ax.text(1.035, yfrac, f"{row.win}/{row.loss}", transform=ax.transAxes,
-                ha="left", va="center", fontsize=FS_VALUE, family="monospace",
-                clip_on=False)
-        ax.text(1.30, yfrac, _fmt_p(row.p_holm), transform=ax.transAxes,
-                ha="left", va="center", fontsize=FS_VALUE, family="monospace",
-                clip_on=False)
+    ax.set_xlim(float(ordered["lo"].min()) - 0.04 * span,
+                float(ordered["hi"].max()) + 0.04 * span)
 
     from matplotlib.patches import Patch
     handles = [Patch(facecolor=TIER_COLOR[t], edgecolor="black", label=t)
                for t in ("Base", "Simple", "Advanced")]
     ax.legend(handles=handles, fontsize=FS_LEGEND, ncol=3, frameon=False,
-              loc="upper center", bbox_to_anchor=(0.5, -0.135))
+              loc="upper center", bbox_to_anchor=(0.5, -0.115),
+              handlelength=1.1, handletextpad=0.5, columnspacing=1.2)
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     path = OUT_DIR / FILENAME
-    fig.savefig(path, dpi=200, bbox_inches="tight")
+    fig.savefig(path, dpi=600, bbox_inches="tight")
     plt.close(fig)
     return path
 
