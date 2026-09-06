@@ -218,8 +218,10 @@ def plot(stats_df: pd.DataFrame, ref_mean: float, n_config: int,
     ypos = np.arange(len(ordered))
     colors = [TIER_COLOR[t] for t in ordered["tier"]]
 
-    fig, ax = plt.subplots(figsize=(3.5, 3.5))
-    fig.subplots_adjust(left=0.435, right=0.985, top=0.99, bottom=0.20)
+    # 2.8 in tall: a full column width but deliberately short, so the float does
+    # not dominate the page. 16 rows still clear each other at FS_TICK.
+    fig, ax = plt.subplots(figsize=(3.5, 2.8))
+    fig.subplots_adjust(left=0.435, right=0.985, top=0.99, bottom=0.245)
 
     ax.axvline(0.0, color="black", linewidth=0.9, linestyle="--", zorder=1)
     for y, row, color in zip(ypos, ordered.itertuples(), colors):
