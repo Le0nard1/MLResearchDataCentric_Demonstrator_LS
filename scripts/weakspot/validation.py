@@ -190,6 +190,7 @@ def render_alignment_figure(
     n_bumps: int = 5,
     noise_std: float = 0.10,
     title: str | None = None,
+    compact: bool = False,
 ):
     """Render the alignment panels as a Matplotlib figure and return it.
 
@@ -208,15 +209,24 @@ def render_alignment_figure(
     nrows = int(np.ceil(n / ncols))
 
     # Compact panels with larger, more legible text (smaller figure, bigger
-    # fonts after scaling into the column).
+    # fonts after scaling into the column). ``compact`` additionally strips the
+    # per-panel titles and interior tick labels, which between them reserve a
+    # text line above and below every row -- worth roughly a fifth of the
+    # figure's height when it is a printed float rather than an on-screen view.
+    per_panel = 2.3 if compact else 2.5
+    # The panels are aspect="equal" while the colourbar takes ~18% of the width,
+    # so a square figure leaves each square panel in a taller-than-wide cell and
+    # the slack shows up as gaps between rows. Shrink the height to match the
+    # width the panels actually get.
+    fig_h = per_panel * nrows * (0.82 if compact else 1.0)
     fig, axes = plt.subplots(
-        nrows, ncols, figsize=(2.5 * ncols, 2.5 * nrows),
+        nrows, ncols, figsize=(per_panel * ncols, fig_h),
         squeeze=False, constrained_layout=True,
     )
     cmap = cm.get_cmap("viridis")  # perceptually uniform, colourblind-safe
     mesh = None
 
-    for ax, p in zip(axes.ravel(), panels):
+    for idx, (ax, p) in enumerate(zip(axes.ravel(), panels)):
         mesh = ax.contourf(
             p.xx, p.yy, p.err_surface, levels=20, cmap=cmap, vmin=0.0, vmax=1.0,
         )
@@ -231,18 +241,32 @@ def render_alignment_figure(
             ax.scatter(p.X_excl[:, 0], p.X_excl[:, 1], s=4, c="white",
                        alpha=0.35, linewidths=0)
         ratio_txt = "n/a" if not np.isfinite(p.ratio) else f"{p.ratio:.1f}x"
+        centre_txt = f"c = ({p.center[0]:.2f}, {p.center[1]:.2f})"
+        # Compact: the centre joins the ratio inside the panel, so no title line
+        # is reserved above each row.
+        label = (f"{centre_txt}\nerr in/out = {ratio_txt}" if compact
+                 else f"err in/out = {ratio_txt}")
         ax.text(
-            0.04, 0.96, f"err in/out = {ratio_txt}",
+            0.04, 0.96, label,
             transform=ax.transAxes, va="top", ha="left", fontsize=12,
-            color="white",
+            color="white", linespacing=1.25,
             bbox=dict(boxstyle="round,pad=0.25", fc="black", ec="none", alpha=0.55),
         )
-        ax.set_title(f"centre = ({p.center[0]:.2f}, {p.center[1]:.2f})", fontsize=13)
+        if not compact:
+            ax.set_title(f"centre = ({p.center[0]:.2f}, {p.center[1]:.2f})",
+                         fontsize=13)
         ax.set_xlim(0, 1)
         ax.set_ylim(0, 1)
         ax.set_xticks([0, 0.5, 1])
         ax.set_yticks([0, 0.5, 1])
         ax.tick_params(labelsize=11)
+        if compact:
+            # Every panel spans the same unit square, so only the outer edges
+            # need numbering.
+            if idx // ncols != nrows - 1:
+                ax.set_xticklabels([])
+            if idx % ncols != 0:
+                ax.set_yticklabels([])
         ax.set_aspect("equal")
 
     # Hide any unused axes.
@@ -279,6 +303,7 @@ def render_alignment_delta_figure(
     n_bumps: int = 5,
     noise_std: float = 0.10,
     title: str | None = None,
+    compact: bool = False,
 ):
     """Render, per location, the with-weakspot error surface minus the
     no-weakspot baseline (``run_baseline_error_surface``).
@@ -306,12 +331,18 @@ def render_alignment_delta_figure(
     n = len(panels)
     ncols = 3 if n % 3 == 0 else (2 if n % 2 == 0 else n)
     nrows = int(np.ceil(n / ncols))
+    per_panel = 2.3 if compact else 2.5
+    # The panels are aspect="equal" while the colourbar takes ~18% of the width,
+    # so a square figure leaves each square panel in a taller-than-wide cell and
+    # the slack shows up as gaps between rows. Shrink the height to match the
+    # width the panels actually get.
+    fig_h = per_panel * nrows * (0.82 if compact else 1.0)
     fig, axes = plt.subplots(
-        nrows, ncols, figsize=(2.5 * ncols, 2.5 * nrows),
+        nrows, ncols, figsize=(per_panel * ncols, fig_h),
         squeeze=False, constrained_layout=True,
     )
     mesh = None
-    for ax, p, d in zip(axes.ravel(), panels, deltas):
+    for idx, (ax, p, d) in enumerate(zip(axes.ravel(), panels, deltas)):
         # Same viridis colour scheme as the alignment figure.
         mesh = ax.contourf(p.xx, p.yy, d, levels=levels, cmap="viridis",
                            vmin=-top, vmax=top, extend="both")
@@ -320,12 +351,27 @@ def render_alignment_delta_figure(
             edgecolor="white", linestyle="--",
         ))
         ax.plot(*p.center, marker="+", color="white", markersize=9, markeredgewidth=1.6)
-        ax.set_title(f"centre = ({p.center[0]:.2f}, {p.center[1]:.2f})", fontsize=13)
+        if compact:
+            ax.text(
+                0.04, 0.96, f"c = ({p.center[0]:.2f}, {p.center[1]:.2f})",
+                transform=ax.transAxes, va="top", ha="left", fontsize=12,
+                color="white",
+                bbox=dict(boxstyle="round,pad=0.25", fc="black", ec="none",
+                          alpha=0.55),
+            )
+        else:
+            ax.set_title(f"centre = ({p.center[0]:.2f}, {p.center[1]:.2f})",
+                         fontsize=13)
         ax.set_xlim(0, 1)
         ax.set_ylim(0, 1)
         ax.set_xticks([0, 0.5, 1])
         ax.set_yticks([0, 0.5, 1])
         ax.tick_params(labelsize=11)
+        if compact:
+            if idx // ncols != nrows - 1:
+                ax.set_xticklabels([])
+            if idx % ncols != 0:
+                ax.set_yticklabels([])
         ax.set_aspect("equal")
     for ax in axes.ravel()[n:]:
         ax.axis("off")

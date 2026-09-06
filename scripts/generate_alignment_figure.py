@@ -89,7 +89,7 @@ def main(argv=None) -> int:
 
     fig = render_alignment_figure(
         panels, model_name=args.model, n_bumps=args.n_bumps, noise_std=args.noise_std,
-        title="",  # the LaTeX caption carries the title in the paper
+        title="", compact=True,  # LaTeX caption carries the title; compact for print
     )
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
@@ -107,7 +107,7 @@ def main(argv=None) -> int:
     fig_delta = render_alignment_delta_figure(
         panels, baseline_raw, model_name=args.model,
         n_bumps=args.n_bumps, noise_std=args.noise_std,
-        title="",  # the LaTeX caption carries the title in the paper
+        title="", compact=True,  # LaTeX caption carries the title; compact for print
     )
     args.out_delta.parent.mkdir(parents=True, exist_ok=True)
     fig_delta.savefig(args.out_delta, dpi=args.dpi, bbox_inches="tight")
