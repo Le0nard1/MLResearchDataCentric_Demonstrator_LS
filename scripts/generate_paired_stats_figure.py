@@ -97,25 +97,31 @@ CONFIG_KEYS = ["param_key"] + CLUSTER_KEYS
 N_BOOT = 20000
 SEED = 0
 
-# Fonts matched to generate_method_comparison_figures.py.
-# Drawn at final print size (3.5 in column), so these are the on-page point sizes.
-FS_LABEL, FS_TICK, FS_VALUE, FS_LEGEND = 7.0, 6.5, 6.0, 6.5
+# Drawn at exactly one IEEE column (252 pt) and saved without a tight bounding
+# box, so LaTeX places it unscaled and every label prints at the 8 pt Times the
+# IEEE template prescribes for figure text.
+COLUMN_WIDTH_IN = 252 / 72.27
+FS = 8.0
+PRINT_RC = {
+    "font.family": ["Times New Roman", "DejaVu Serif"],
+    "mathtext.fontset": "stix",     # Times-style italic k in "kNN"
+    "font.size": FS,
+    "axes.linewidth": 0.6,
+}
 
-# The full registry names do not fit a 3.5 in column once the axes are drawn.
-SHORT_NAME = {
-    "EVT × GPR (geometric)": "EVT × GPR",
-    "QR × GPR (geometric)": "QR × GPR",
-    "GPR/kNN (variance-weighted)": "GPR/kNN (var.-weighted)",
-    "GPR/kNN (disagreement-amplified)": "GPR/kNN (disagr.-ampl.)",
-    "Anchored GPR (QR prior)": "Anchored GPR",
-    "Gated GPR (QR anchor)": "Gated GPR",
-    "Local GPR (QR-localised)": "Local GPR",
-    "kNN Performance Mapping": "kNN Perf. Mapping",
-    "Peaks over Threshold (EVT)": "Peaks over Thresh. (EVT)",
-    "Gaussian Process Regression": "Gaussian Process Regr.",
-    "Polynomial Response Surface": "Polynomial Resp. Surface",
-    "Bayesian Optimization (EI)": "Bayesian Opt. (EI)",
-    "LOESS Local Regression": "LOESS",
+# Method names exactly as in the paper's results table (Table II), written out
+# in words rather than truncated abbreviations.
+DISPLAY_NAME = {
+    "EVT × GPR (geometric)": "EVT × GPR (geometric consensus)",
+    "QR × GPR (geometric)": "QR × GPR (geometric consensus)",
+    "GPR/kNN (variance-weighted)": "GPR/$k$NN (variance-weighted)",
+    "GPR/kNN (disagreement-amplified)": "GPR/$k$NN (disagreement-amplified)",
+    "Anchored GPR (QR prior)": "Anchored GPR (QR prior, additive)",
+    "Gated GPR (QR anchor)": "Gated GPR (QR anchor, multiplicative)",
+    "Local GPR (QR-localised)": "Local GPR (QR-localized refit)",
+    "kNN + GPR (mean)": "$k$NN + GPR (arithmetic mean)",
+    "kNN + Quantile (mean)": "$k$NN + QR (arithmetic mean)",
+    "kNN Performance Mapping": "$k$NN Performance Mapping",
 }
 
 
@@ -207,43 +213,44 @@ def _fmt_p(p: float) -> str:
 
 def plot(stats_df: pd.DataFrame, ref_mean: float, n_config: int,
          n_cluster: int) -> Path:
-    """Forest plot sized for a SINGLE IEEE column (``figure``, 3.5 in wide).
+    """Forest plot sized for a SINGLE IEEE column (``figure``, one column wide).
 
-    Drawn at roughly its final print size so the type scales 1:1 rather than
-    being shrunk: at 3.5 in wide the labels stay near 7 pt. Win/loss counts and
-    the Holm p are deliberately not drawn -- they are columns of the results
-    table, and at this width the space is needed for the method labels.
+    Drawn at its final print size (see ``PRINT_RC``). Win/loss counts and the
+    Holm p are deliberately not drawn -- they are columns of the results table,
+    and at this width the space is needed for the method labels.
     """
+    plt.rcParams.update(PRINT_RC)
     ordered = stats_df.iloc[::-1].reset_index(drop=True)  # best at the top
     ypos = np.arange(len(ordered))
     colors = [TIER_COLOR[t] for t in ordered["tier"]]
 
-    # 2.8 in tall: a full column width but deliberately short, so the float does
-    # not dominate the page. 16 rows still clear each other at FS_TICK.
-    fig, ax = plt.subplots(figsize=(3.5, 2.8))
-    fig.subplots_adjust(left=0.435, right=0.985, top=0.99, bottom=0.245)
+    # Layout in inches: one row per method, then tick labels, the axis title
+    # and the legend underneath.
+    row_in, bottom_in, top_in, right_in = 0.155, 0.56, 0.05, 0.06
+    height_in = bottom_in + row_in * len(ordered) + top_in
+    fig, ax = plt.subplots(figsize=(COLUMN_WIDTH_IN, height_in))
 
-    ax.axvline(0.0, color="black", linewidth=0.9, linestyle="--", zorder=1)
+    ax.axvline(0.0, color="black", linewidth=0.8, linestyle="--", zorder=1)
     for y, row, color in zip(ypos, ordered.itertuples(), colors):
-        ax.plot([row.lo, row.hi], [y, y], color=color, linewidth=1.3,
+        ax.plot([row.lo, row.hi], [y, y], color=color, linewidth=1.2,
                 solid_capstyle="round", zorder=2)
         for cap in (row.lo, row.hi):
             ax.plot([cap, cap], [y - 0.26, y + 0.26], color=color,
-                    linewidth=1.0, zorder=2)
-    ax.scatter(ordered["delta"], ypos, s=17, color=colors, edgecolor="black",
+                    linewidth=0.9, zorder=2)
+    ax.scatter(ordered["delta"], ypos, s=14, color=colors, edgecolor="black",
                linewidth=0.4, zorder=3)
 
     ax.set_yticks(ypos)
-    ax.set_yticklabels([SHORT_NAME.get(m, m) for m in ordered["method"]],
-                       fontsize=FS_TICK)
-    ax.set_ylim(-0.7, len(ordered) - 0.3)
-    ax.set_xlabel(r"$\Delta$ mean IoU vs. EVT (right of 0 $=$ better)",
-                  fontsize=FS_LABEL, labelpad=2)
+    ax.set_yticklabels([DISPLAY_NAME.get(m, m) for m in ordered["method"]])
+    ax.set_ylim(-0.6, len(ordered) - 0.4)
+    # Right-aligned: the full method names leave a narrow plot area, and a
+    # centred title would run off the right edge of the column.
+    ax.set_xlabel("Mean paired IoU difference from EVT", labelpad=2, loc="right")
     # No in-image title: the LaTeX caption carries it.
-    # Few ticks: at 3.5 in the default locator packs the labels until they touch.
+    # Few ticks: at column width the default locator packs the labels together.
     ax.xaxis.set_major_locator(plt.MaxNLocator(4))
-    ax.tick_params(axis="x", labelsize=FS_TICK, pad=1.5)
-    ax.tick_params(axis="y", length=2, pad=1.5)
+    ax.tick_params(axis="x", pad=1.5, length=2.5, width=0.6)
+    ax.tick_params(axis="y", pad=1.5, length=2, width=0.6)
     ax.grid(axis="x", color="lightgray", linewidth=0.5)
     ax.set_axisbelow(True)
     for side in ("top", "right"):
@@ -254,15 +261,24 @@ def plot(stats_df: pd.DataFrame, ref_mean: float, n_config: int,
                 float(ordered["hi"].max()) + 0.04 * span)
 
     from matplotlib.patches import Patch
-    handles = [Patch(facecolor=TIER_COLOR[t], edgecolor="black", label=t)
-               for t in ("Base", "Simple", "Advanced")]
-    ax.legend(handles=handles, fontsize=FS_LEGEND, ncol=3, frameon=False,
-              loc="upper center", bbox_to_anchor=(0.5, -0.115),
-              handlelength=1.1, handletextpad=0.5, columnspacing=1.2)
+    handles = [Patch(facecolor=TIER_COLOR[t], edgecolor="black", linewidth=0.6,
+                     label=t) for t in ("Base", "Simple", "Advanced")]
+    fig.legend(handles=handles, ncol=3, frameon=False,
+               loc="lower center", bbox_to_anchor=(0.5, 0.0),
+               handlelength=1.1, handletextpad=0.5, columnspacing=1.2)
+
+    # The left margin is whatever the longest method name needs, measured
+    # rather than guessed, so the plot area uses all the remaining width.
+    fig.canvas.draw()
+    label_in = max(t.get_window_extent().width
+                   for t in ax.get_yticklabels()) / fig.dpi
+    fig.subplots_adjust(left=(label_in + 0.08) / COLUMN_WIDTH_IN,
+                        right=1 - right_in / COLUMN_WIDTH_IN,
+                        bottom=bottom_in / height_in, top=1 - top_in / height_in)
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     path = OUT_DIR / FILENAME
-    fig.savefig(path, dpi=600, bbox_inches="tight")
+    fig.savefig(path, dpi=600)
     plt.close(fig)
     return path
 

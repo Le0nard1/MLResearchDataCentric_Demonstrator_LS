@@ -65,7 +65,7 @@ def parse_args(argv=None) -> argparse.Namespace:
                    help="dataset size before exclusion (default: 1500)")
     p.add_argument("--grid-res", type=int, default=60,
                    help="error-surface grid resolution (default: 60)")
-    p.add_argument("--dpi", type=int, default=300, help="output DPI (default: 300)")
+    p.add_argument("--dpi", type=int, default=600, help="output DPI (default: 600)")
     return p.parse_args(argv)
 
 
@@ -87,13 +87,15 @@ def main(argv=None) -> int:
               f"mean {sum(ratios)/len(ratios):.1f}x, max {max(ratios):.1f}x "
               f"(higher means the gap is clearly the model's weak region)")
 
+    # compact=True draws the figures at their printed width; saving without
+    # bbox_inches="tight" keeps that size, so LaTeX places them unscaled.
     fig = render_alignment_figure(
         panels, model_name=args.model, n_bumps=args.n_bumps, noise_std=args.noise_std,
-        title="", compact=True,  # LaTeX caption carries the title; compact for print
+        title="", compact=True,  # LaTeX caption carries the title
     )
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(args.out, dpi=args.dpi, bbox_inches="tight")
+    fig.savefig(args.out, dpi=args.dpi)
     print(f"  wrote {args.out}")
 
     # Baseline-subtracted view: isolate the error the withheld data caused by
@@ -107,10 +109,10 @@ def main(argv=None) -> int:
     fig_delta = render_alignment_delta_figure(
         panels, baseline_raw, model_name=args.model,
         n_bumps=args.n_bumps, noise_std=args.noise_std,
-        title="", compact=True,  # LaTeX caption carries the title; compact for print
+        title="", compact=True,  # LaTeX caption carries the title
     )
     args.out_delta.parent.mkdir(parents=True, exist_ok=True)
-    fig_delta.savefig(args.out_delta, dpi=args.dpi, bbox_inches="tight")
+    fig_delta.savefig(args.out_delta, dpi=args.dpi)
     print(f"  wrote {args.out_delta}")
     return 0
 
