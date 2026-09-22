@@ -46,7 +46,7 @@ from scripts.dataselect import error_landscape as EL
 APP = Path(__file__).resolve().parents[1]
 RESULTS = APP / "data" / "experiment_results" / "data_selective_training"
 FIGDIR = RESULTS / "figures"
-PAPER_FIGDIR = (APP.parent / "Documents" / "Paper_DataSelectiveTraining" / "figures")
+PAPER_FIGDIR = (APP.parent / "Documents" / "Paper_DataSelectionOnModelWeakness" / "figures")
 
 # The 50 seeds of the isolation experiments, so this study rests on the same seed
 # set as Section "The Dataset Mix".
@@ -55,7 +55,9 @@ SEEDS = [42, 0, 7, 1, 3, 5, 11, 17, 23, 99, 2, 4, 6, 8, 13, 19, 29, 37, 53, 71,
          115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129]
 
 C_TRUE = "#d62728"      # induced (ground-truth) weakspot
-C_DET = "#00d0ff"       # detected weakspot
+C_DET = "#ffffff"       # detected weakspot
+CMAP_SEQ = "viridis"    # (a) error and (b) detection surface
+CMAP_DIFF = "PuOr_r"    # (c), (d) change in error: purple removed, orange added
 
 # One detector carries the whole study, so the figure shows what a single, concrete
 # identification does rather than an average over methods that no practitioner runs.
@@ -147,7 +149,7 @@ def panel_detected(ax, study, title):
     """Mean detector surface with the detected extent and the induced weakspot."""
     xx = study["xx"]
     im = ax.imshow(study["surf_mean"].reshape(xx.shape), origin="lower",
-                   extent=(0, 1, 0, 1), cmap="magma", vmin=0, vmax=1,
+                   extent=(0, 1, 0, 1), cmap=CMAP_SEQ, vmin=0, vmax=1,
                    interpolation="bilinear")
     ext = study["rep"]["ext"]
     if ext is not None:
@@ -192,11 +194,11 @@ def render(study: dict, out: Path, dpi: int = 200) -> Path:
     d_lo, d_hi, d_ticks = _whole_bounds(study["d_guided"], study["d_random"],
                                         symmetric=True)
 
-    fig, axes = plt.subplots(2, 2, figsize=(8.4, 8.0), constrained_layout=True)
+    fig, axes = plt.subplots(2, 2, figsize=(7.6, 7.0), constrained_layout=True)
 
     # ---- (a) the error landscape before selection --------------------------
     ax = axes[0, 0]
-    im_e = _map(ax, study["init"], "inferno", e_lo, e_hi)
+    im_e = _map(ax, study["init"], CMAP_SEQ, e_lo, e_hi)
     _true_circle(ax, c, r, label="induced weakspot")
     _frame(ax, "(a) Error before selection")
     _annotate(ax, study["init"], study, fmt="{:.2f}")
@@ -215,17 +217,17 @@ def render(study: dict, out: Path, dpi: int = 200) -> Path:
     cbd.ax.tick_params(labelsize=8)
 
     # ---- (c), (d) what each retraining changed, on one shared scale ---------
-    ims = []
+    # Each gets its own bar, laid out like (a) and (b), but both use the same limits.
     for ax, Z, t in zip(axes[1, :], (study["d_guided"], study["d_random"]),
                         ("(c) Guided $-$ before", "(d) Random $-$ before")):
-        ims.append(_map(ax, Z, "RdBu_r", d_lo, d_hi))
+        im = _map(ax, Z, CMAP_DIFF, d_lo, d_hi)
         _true_circle(ax, c, r)
         _frame(ax, t)
         _annotate(ax, Z, study)
-    cbg = fig.colorbar(ims[-1], ax=list(axes[1, :]), location="right",
-                       fraction=0.046, pad=0.02, ticks=d_ticks)
-    cbg.set_label("$\\Delta$ error   (blue: error removed, red: added)", fontsize=9)
-    cbg.ax.tick_params(labelsize=8)
+        cbg = fig.colorbar(im, ax=ax, location="right", fraction=0.046, pad=0.02,
+                           ticks=d_ticks)
+        cbg.set_label("change in absolute error  $\\Delta|\\hat{f}-f|$", fontsize=9)
+        cbg.ax.tick_params(labelsize=8)
 
     for ax in axes[:, 0]:
         ax.set_ylabel("$x_2$", fontsize=9)

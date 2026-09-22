@@ -184,7 +184,7 @@ def plot_global_sensitivity():
         m = df.groupby(k)["adv"].mean()
         spans.append((lab, float(m.min()), float(m.max()), float(m.max() - m.min())))
     spans.sort(key=lambda t: t[3])
-    fig, ax = plt.subplots(figsize=(9, 4.8))
+    fig, ax = plt.subplots(figsize=(9, 3.3))
     ys = np.arange(len(spans))
     for y, (lab, lo, hi, span) in zip(ys, spans):
         ax.plot([lo, hi], [y, y], color=C_GUIDED, lw=6, solid_capstyle="round", alpha=0.8)
@@ -321,7 +321,7 @@ def plot_isolation():
     width (sel_sigma, pure guided). The Gaussian axis is drawn wide→narrow so both
     panels develop identically: left = coverage (≈ baseline), right = pure focus
     (forgetting). Shared y-axis for a direct comparison."""
-    fig, (axL, axR) = plt.subplots(1, 2, figsize=(13.5, 5.4), sharey=True)
+    fig, (axL, axR) = plt.subplots(1, 2, figsize=(13.5, 4.0), sharey=True)
 
     def panel(ax, name, axis, reverse, xlabel, logx=False):
         df = _load(name)
@@ -349,11 +349,11 @@ def plot_isolation():
         return ax
 
     panel(axL, "iso_mix", "mix_ratio", False,
-          "mix_ratio   (0 = pure uniform  →  1 = pure guided)")
+          r"Rehearsal mix ratio $\alpha$   (0 = pure uniform  →  1 = pure guided)")
     axL.set_ylabel("Whole-area MAE")
     axL.legend(fontsize=8, loc="upper center")
     panel(axR, "iso_gaussian", "sel_sigma", True,
-          "sel_sigma  (log scale;  wide  →  narrow)", logx=True)
+          r"Kernel width $\sigma$  (log scale;  wide  →  narrow)", logx=True)
 
     fig.tight_layout()
     out = FIGDIR / "fig_isolation_forgetting.png"
