@@ -74,6 +74,10 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--copy-to-paper", action="store_true", default=True,
                    help="also write the PNG into the paper's figures/ (default: on)")
     p.add_argument("--no-copy-to-paper", dest="copy_to_paper", action="store_false")
+    p.add_argument("--mix", type=float, default=None,
+                   help="guidance fraction alpha (default: EL.OPERATING_POINT)")
+    p.add_argument("--sigma", type=float, default=None,
+                   help="selection-kernel width (default: EL.OPERATING_POINT)")
     p.add_argument("--seeds", type=int, default=len(SEEDS),
                    help=f"how many seeds to average over (default: {len(SEEDS)})")
     p.add_argument("--detector", action="append", default=None,
@@ -266,8 +270,10 @@ def main(argv=None) -> int:
     # Re-running 250 rounds to nudge a colour bar is wasteful, so the computed study
     # is cached beside the figure and reused unless the recipe changed.
     cache = args.out.with_name(args.out.stem + "_study.pkl")
-    recipe = dict(seeds=seeds, detectors=detectors, land_res=args.land_res,
-                  op=EL.OPERATING_POINT)
+    params = {k: v for k, v in (("mix_ratio", args.mix), ("sel_sigma", args.sigma))
+              if v is not None}
+    op = {**EL.OPERATING_POINT, **params}
+    recipe = dict(seeds=seeds, detectors=detectors, land_res=args.land_res, op=op)
     study = None
     if cache.exists() and not args.recompute:
         with open(cache, "rb") as f:
@@ -279,16 +285,15 @@ def main(argv=None) -> int:
     if study is None:
         print(f"Running the error-landscape study: {len(seeds)} seeds x "
               f"{len(detectors)} detectors = {n_runs} rounds "
-              f"at the operating point (radius {EL.OPERATING_POINT['radius']}, "
-              f"mix {EL.OPERATING_POINT['mix_ratio']}, "
-              f"sigma {EL.OPERATING_POINT['sel_sigma']}) ...")
+              f"(radius {op['radius']}, mix {op['mix_ratio']}, "
+              f"sigma {op['sel_sigma']}) ...")
 
         def _progress(done, total):
             if done % max(1, total // 20) == 0 or done == total:
                 print(f"  {done}/{total}", end="\r", flush=True)
 
-        study = EL.run_study(seeds, detectors=detectors, land_res=args.land_res,
-                             progress=_progress)
+        study = EL.run_study(seeds, detectors=detectors, params=params,
+                             land_res=args.land_res, progress=_progress)
         print()
         study["_recipe"] = recipe
         cache.parent.mkdir(parents=True, exist_ok=True)

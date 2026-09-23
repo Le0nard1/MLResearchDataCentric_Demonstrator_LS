@@ -169,7 +169,7 @@ def plot_global_sensitivity():
     levels; the bar spans [min..max] across levels (its main effect), sorted by span.
     Answers 'which of ALL the swept parameters move the outcome, and by how much'."""
     LABELS = {
-        "mix_ratio": "Rehearsal mix ratio", "sel_sigma": "Selection-kernel width",
+        "mix_ratio": "Guidance fraction", "sel_sigma": "Selection-kernel width",
         "n_select": "Curated points added", "iters_initial": "Initial training time",
         "n_train": "Initial training-set size", "n_bumps": "Function complexity",
         "sel_method": "Selection strategy", "radius": "Induced gap size",
@@ -315,7 +315,7 @@ def plot_heatmaps():
     return out
 
 
-def plot_isolation():
+def plot_isolation(suffix: str = "_knn"):
     """Paired figure: the two independent routes to coverage that both prevent
     catastrophic forgetting — uniform rehearsal (mix, narrow kernel) vs kernel
     width (sel_sigma, pure guided). The Gaussian axis is drawn wide→narrow so both
@@ -348,11 +348,11 @@ def plot_isolation():
                 fontsize=8, color="#d62728", va="bottom", ha="right")
         return ax
 
-    panel(axL, "iso_mix", "mix_ratio", False,
-          r"Rehearsal mix ratio $\alpha$   (0 = pure uniform  →  1 = pure guided)")
+    panel(axL, "iso_mix" + suffix, "mix_ratio", False,
+          r"Guidance fraction $\alpha$   (0 = pure uniform  →  1 = pure guided)")
     axL.set_ylabel("Whole-area MAE")
     axL.legend(fontsize=8, loc="upper center")
-    panel(axR, "iso_gaussian", "sel_sigma", True,
+    panel(axR, "iso_gaussian" + suffix, "sel_sigma", True,
           r"Kernel width $\sigma$  (log scale;  wide  →  narrow)", logx=True)
 
     fig.tight_layout()
