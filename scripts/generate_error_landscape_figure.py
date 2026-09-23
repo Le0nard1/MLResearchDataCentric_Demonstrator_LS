@@ -3,11 +3,11 @@ Generate the error-landscape figure for the paper
 (``figures/fig_error_landscape.png``, referenced from the closing experiment
 section of ``main.tex``).
 
-The figure tells one round of the method as four maps over the same input square,
+The figure tells one round of the method as three maps over the same input square,
 averaged over seeds and computed with a single detector:
 
-    (a) error before      (b) detected weakspot
-    (c) guided - before   (d) random - before      ((c) and (d) share one scale)
+    (a) error before, with the induced and the detected weakspot
+    (b) guided - before   (c) random - before      ((b) and (c) share one scale)
 
 The difference maps are the point of the figure: they show *where* each retraining
 spent an identical budget of new points. Guided selection empties the gap; the
@@ -57,7 +57,7 @@ SEEDS = [42, 0, 7, 1, 3, 5, 11, 17, 23, 99, 2, 4, 6, 8, 13, 19, 29, 37, 53, 71,
 C_TRUE = "#d62728"      # induced (ground-truth) weakspot
 C_DET = "#ffffff"       # detected weakspot
 CMAP_SEQ = "viridis"    # (a) error and (b) detection surface
-CMAP_DIFF = "PuOr_r"    # (c), (d) change in error: purple removed, orange added
+CMAP_DIFF = "RdBu_r"    # (b), (c) change in error: blue removed, red added
 
 # One detector carries the whole study, so the figure shows what a single, concrete
 # identification does rather than an average over methods that no practitioner runs.
@@ -109,8 +109,8 @@ def _map(ax, Z, cmap, vmin, vmax):
                      vmin=vmin, vmax=vmax, interpolation="bilinear")
 
 
-def _true_circle(ax, center, radius, label=None):
-    ax.add_patch(Circle(center, radius, fill=False, ec=C_TRUE, lw=1.8,
+def _true_circle(ax, center, radius, label=None, color=C_TRUE):
+    ax.add_patch(Circle(center, radius, fill=False, ec=color, lw=1.8,
                         ls="--", zorder=5, label=label))
 
 
@@ -190,52 +190,55 @@ def _whole_bounds(*maps, symmetric: bool = False, q: float = 99.0):
 
 
 def render(study: dict, out: Path, dpi: int = 200) -> Path:
-    """Four panels: the error before, what the detector found, and what each
-    retraining changed. (c) and (d) share one scale so the two arms are comparable."""
+    """One row of three panels: (a) the error before selection with the induced and
+    the detected weakspot, (b) and (c) what guided and random retraining changed, on
+    one shared scale and colour bar so the two arms are directly comparable."""
     c, r = study["center"], study["radius"]
 
     e_lo, e_hi, e_ticks = _whole_bounds(study["init"])
     d_lo, d_hi, d_ticks = _whole_bounds(study["d_guided"], study["d_random"],
                                         symmetric=True)
 
-    fig, axes = plt.subplots(2, 2, figsize=(7.6, 7.0), constrained_layout=True)
+    fig, axes = plt.subplots(1, 3, figsize=(11.0, 3.6), constrained_layout=True)
 
-    # ---- (a) the error landscape before selection --------------------------
-    ax = axes[0, 0]
+    # ---- (a) error before selection + induced and detected weakspot ----------
+    ax = axes[0]
     im_e = _map(ax, study["init"], CMAP_SEQ, e_lo, e_hi)
+    ext = study["rep"]["ext"]
+    if ext is not None:
+        ax.plot(ext["ellipse_x"], ext["ellipse_y"], color=C_DET, lw=1.8, zorder=6,
+                label="detected extent (2$\\sigma$)")
     _true_circle(ax, c, r, label="induced weakspot")
     _frame(ax, "(a) Error before selection")
     _annotate(ax, study["init"], study, fmt="{:.2f}")
-    ax.legend(loc="lower left", fontsize=7, framealpha=0.85, handlelength=1.4,
+    ax.text(0.985, 0.985,
+            f"distance {np.nanmean(study['distance']):.3f}\n"
+            f"IoU {np.nanmean(study['iou']):.2f}",
+            transform=ax.transAxes, ha="right", va="top", fontsize=7.5,
+            color="#111111", zorder=8,
+            bbox=dict(boxstyle="round,pad=0.28", fc="white", ec="#999999",
+                      alpha=0.88, lw=0.5))
+    ax.legend(loc="lower left", fontsize=6.5, framealpha=0.85, handlelength=1.4,
               borderpad=0.3)
     cb = fig.colorbar(im_e, ax=ax, location="right", fraction=0.046, pad=0.02,
                       ticks=e_ticks)
-    cb.set_label("mean absolute error  $|\\hat{f}-f|$", fontsize=9)
+    cb.set_label("absolute error  $|\\hat{f}-f|$", fontsize=9)
     cb.ax.tick_params(labelsize=8)
 
-    # ---- (b) what the detector found ---------------------------------------
-    im_d = panel_detected(axes[0, 1], study, "(b) Detected weakspot")
-    cbd = fig.colorbar(im_d, ax=axes[0, 1], location="right", fraction=0.046,
-                       pad=0.02, ticks=[0, 1])
-    cbd.set_label("detection surface (normalised)", fontsize=9)
-    cbd.ax.tick_params(labelsize=8)
-
-    # ---- (c), (d) what each retraining changed, on one shared scale ---------
-    # Each gets its own bar, laid out like (a) and (b), but both use the same limits.
-    for ax, Z, t in zip(axes[1, :], (study["d_guided"], study["d_random"]),
-                        ("(c) Guided $-$ before", "(d) Random $-$ before")):
+    # ---- (b), (c) what each retraining changed, one shared scale and bar -----
+    for ax, Z, t in zip(axes[1:], (study["d_guided"], study["d_random"]),
+                        ("(b) Guided $-$ before", "(c) Random $-$ before")):
         im = _map(ax, Z, CMAP_DIFF, d_lo, d_hi)
-        _true_circle(ax, c, r)
+        _true_circle(ax, c, r, color="#1a1a1a")   # black: red means "error added" here
         _frame(ax, t)
         _annotate(ax, Z, study)
-        cbg = fig.colorbar(im, ax=ax, location="right", fraction=0.046, pad=0.02,
-                           ticks=d_ticks)
-        cbg.set_label("change in absolute error  $\\Delta|\\hat{f}-f|$", fontsize=9)
-        cbg.ax.tick_params(labelsize=8)
+    cbd = fig.colorbar(im, ax=list(axes[1:]), location="right", fraction=0.046,
+                       pad=0.02, ticks=d_ticks)
+    cbd.set_label("change in absolute error", fontsize=9)
+    cbd.ax.tick_params(labelsize=8)
 
-    for ax in axes[:, 0]:
-        ax.set_ylabel("$x_2$", fontsize=9)
-    for ax in axes[1, :]:
+    axes[0].set_ylabel("$x_2$", fontsize=9)
+    for ax in axes:
         ax.set_xlabel("$x_1$", fontsize=9)
 
     fig.savefig(out, dpi=dpi, bbox_inches="tight")
