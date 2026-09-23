@@ -61,6 +61,19 @@ with probability proportional to the Gaussian kernel around $\hat{\mathbf{c}}$; 
 remaining $(1-\alpha)\,n$ points are drawn uniformly from the rest of the pool
 (`select_by_weakspot` in `scripts/dataselect/pipeline.py`).
 
+### Configuration of Sections 4.3 and 4.4
+
+The fixed factors (initial model trained for 12 epochs on 100 points, 100 points added,
+retraining for 400 epochs, gap radius 0.25) come from an exploratory search that
+followed the broad-sweep trends towards smaller, less-trained initial models (configs
+`best_search`, `best_search2`; five seeds, 42/0/7/1/3, which are also among the 50
+seeds of Sections 4.3 and 4.4). They were not re-tuned for the experiments of Sections
+4.3 and 4.4. Robustness of the Section 4.3 band ($\alpha \in [0.05, 0.35]$,
+$\sigma = 0.1$, 50 seeds, per-seed mean difference guided − random): kNN performance
+mapping −0.079 ± 0.070 ($p = 0.04$), peaks over threshold −0.066 ± 0.067
+($p = 0.048$), RBF interpolation −0.051 ± 0.070 ($p = 0.16$) (configs `iso_mix_knn`,
+`iso_mix`).
+
 ## B. Detector comparison
 
 All seventeen detectors of the companion weakspot-identification paper, at the
