@@ -46,22 +46,23 @@ from scripts.dataselect import pipeline as P
 LAND_RES_DEFAULT = 60
 IOU_HEADLINE_Q = 0.90
 
-# The paper's operating point with the enlarged gap (radius 0.25) - identical to the
-# anchor of the ``best_vary_detector`` / ``iso_*`` sweep configs, so this study sits
-# at the same point in parameter space as the isolation experiments.
+# The paper's operating point (revised setup, chosen by pilot_setup.py from the
+# validity of the diagnosis alone): a trained initial model (200 iterations on 400
+# points) and a gap of radius 0.2 on the bump at (0.25, 0.75), which the model does
+# not fail on without the gap. Identical to the anchor of the ``iso_*_v2`` configs.
 OPERATING_POINT = dict(
     # setup / data
     n_bumps=5, noise_std=0.05, n_pool_total=2000, shift_strength=0.0,
     shift_center_x=0.30, shift_center_y=0.30, shift_spread=0.15,
-    radius=0.25, center_x=0.5, center_y=0.5,
+    radius=0.2, center_x=0.25, center_y=0.75,
     # model / initial training
     model_name="MLP Neural Network", complexity=0.5,
-    iters_initial=12, n_train=100, early_stopping=True,
-    # evaluation / identification
-    n_eval=1000, grid_res=35, extract_q=0.85,
+    iters_initial=200, n_train=400, early_stopping=True,
+    # evaluation / identification ("pool": diagnose on the noisy candidate pool)
+    n_eval=1000, grid_res=35, extract_q=0.85, diag_sample="pool",
     # selection
     sel_method=P.DEFAULT_SEL_METHOD, sel_mode="Sample ∝ weight",
-    sel_sigma=0.5, n_select=100, n_candidate=2000, mix_ratio=0.5,
+    sel_sigma=0.1, n_select=100, n_candidate=2000, mix_ratio=0.2,
     # retraining
     iters_retrain=400, warm_start=True,
 )
@@ -175,7 +176,11 @@ def run_seed(params: dict, seed: int, detector: str, land_flat: np.ndarray) -> d
     einR, eoutR = _region(errR)
 
     # ---- weakspot identification on the initial error -------------------
-    surf0 = P.normalize_surface(DETECTION_METHODS[detector](X_eval, err0, grid_flat))
+    if str(p.get("diag_sample", "eval")) == "pool":
+        X_diag, err_diag = X_cand, np.abs(y_cand - model0.predict(X_cand))
+    else:
+        X_diag, err_diag = X_eval, err0
+    surf0 = P.normalize_surface(DETECTION_METHODS[detector](X_diag, err_diag, grid_flat))
     ext = extract_weakspot(surf0, xx, yy, threshold_quantile=float(p["extract_q"]))
     iou = iou_ellipse_at_thresholds(surf0, xx, yy, gt_mask, (IOU_HEADLINE_Q,))
     if ext is None:                     # no pixel above threshold -> surface argmax

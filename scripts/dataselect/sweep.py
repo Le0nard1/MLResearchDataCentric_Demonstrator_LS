@@ -176,6 +176,9 @@ def make_param_key(params: dict) -> str:
         # default → key-neutral; "heldout" gets distinct keys.
         if k == "diag_sample" and str(params.get(k, "eval")) == "eval":
             continue
+        # n_base_draws=1 (a single baseline draw) is the historical default.
+        if k == "n_base_draws" and int(params.get(k, 1)) == 1:
+            continue
         parts.append(f"{k}={params[k]}")
     return "|".join(parts)
 
@@ -305,12 +308,21 @@ def run_one(params: dict) -> list[dict]:
     model0.fit(X_tr0, y_tr0)
     _, err0, mi = P.evaluate(model0, X_eval, y_eval)
 
+    # ---- candidate pool (shared) ----
+    X_cand = P.sample_inputs(int(params["n_candidate"]), rng, shift_strength=0.0)
+    y_cand = P.label(X_cand, rng, n_bumps=nb, noise_std=noise)
+
     # ---- diagnosis sample ----
     # "eval" (default): the detectors read the initial model's error on the
     # evaluation sample itself. "heldout": they read it on a second, independent
     # noiseless sample of the same size, drawn from its own RNG so that every other
     # draw (pool, baseline, selection) stays identical to the "eval" run.
-    if str(params.get("diag_sample", "eval")) == "heldout":
+    # "pool": they read it on the labelled candidate pool itself, noisy labels
+    # included, so no noiseless or extra sample enters the diagnosis.
+    if str(params.get("diag_sample", "eval")) == "pool":
+        X_diag = X_cand
+        err_diag = np.abs(y_cand - model0.predict(X_cand))
+    elif str(params.get("diag_sample", "eval")) == "heldout":
         rng_d = np.random.RandomState(int(params["seed"]) + 1_000_003)
         X_diag = P.sample_inputs(int(params["n_eval"]), rng_d, shift_strength=0.0)
         y_diag = P.true_function(X_diag, n_bumps=nb)
@@ -319,16 +331,26 @@ def run_one(params: dict) -> list[dict]:
         X_diag, err_diag = X_eval, err0
     ein0, eout0 = _region(err0)
 
-    # ---- candidate pool (shared) ----
-    X_cand = P.sample_inputs(int(params["n_candidate"]), rng, shift_strength=0.0)
-    y_cand = P.label(X_cand, rng, n_bumps=nb, noise_std=noise)
-
     # ---- random baseline (detector-independent, computed once) ----
     n_sel = min(n_select, len(X_cand))
     rand_idx = rng.choice(len(X_cand), size=n_sel, replace=False)
     modelR = _retrain(model0, X_cand[rand_idx], y_cand[rand_idx])
     _, errR, mb = P.evaluate(modelR, X_eval, y_eval)
     einR, eoutR = _region(errR)
+    # Optional extra baseline draws, averaged with the first. Each comes from its own
+    # RNG stream, so the shared ``rng`` (and with it every guided selection) is
+    # untouched and the guided rows stay identical to a single-draw run.
+    n_draws = int(params.get("n_base_draws", 1))
+    if n_draws > 1:
+        acc = [(mb["RMSE"], mb["MAE"], mb["R2"], einR, eoutR)]
+        for d in range(1, n_draws):
+            rng_b = np.random.RandomState(int(params["seed"]) * 100 + d)
+            idx_b = rng_b.choice(len(X_cand), size=n_sel, replace=False)
+            _, err_b, m_b = P.evaluate(_retrain(model0, X_cand[idx_b], y_cand[idx_b]),
+                                       X_eval, y_eval)
+            acc.append((m_b["RMSE"], m_b["MAE"], m_b["R2"], *_region(err_b)))
+        rm, ma, r2, einR, eoutR = np.mean(np.asarray(acc, dtype=float), axis=0)
+        mb = {"RMSE": float(rm), "MAE": float(ma), "R2": float(r2)}
 
     base_cols = {
         "base_rmse": mb["RMSE"], "base_mae": mb["MAE"], "base_r2": mb["R2"],

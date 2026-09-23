@@ -164,40 +164,60 @@ def plot_effect_sizes():
 
 
 def plot_global_sensitivity():
-    """Sensitivity of EVERY swept axis, computed from the broad sweep (alpha_boundary).
-    For each parameter, the mean whole-area advantage (base-guided MAE) at each of its
-    levels; the bar spans [min..max] across levels (its main effect), sorted by span.
-    Answers 'which of ALL the swept parameters move the outcome, and by how much'."""
+    """Sensitivity of every swept axis in the broad sweep (alpha_boundary), computed on
+    the guidance fractions that neither coincide with random (alpha=0) nor collapse
+    into forgetting (alpha=1), so no factor is averaged over the catastrophic slice.
+    (a) Mean whole-area advantage (base-guided MAE) at each level; the bar spans
+    [worst..best] level. (b) Share of the variance of the advantage explained by the
+    factor's main effect (eta^2), against the seed-noise floor: the variance between
+    two independent uniform draws (alpha=0 rows) relative to the total."""
     LABELS = {
         "mix_ratio": "Guidance fraction", "sel_sigma": "Selection-kernel width",
         "n_select": "Curated points added", "iters_initial": "Initial training time",
         "n_train": "Initial training-set size", "n_bumps": "Function complexity",
         "sel_method": "Selection strategy", "radius": "Induced gap size",
         "noise_std": "Label-noise level", "iters_retrain": "Retraining time",
+        "method": "Detection method",
     }
     use = ["guided_mae", "base_mae"] + list(LABELS)
     df = pd.read_csv(RESULTS / "sweep__alpha_boundary.csv",
                      usecols=lambda c: c in use).dropna(subset=["guided_mae", "base_mae"])
     df["adv"] = df["base_mae"] - df["guided_mae"]
-    spans = []
+    noise_var = float(df.loc[df["mix_ratio"] == 0, "adv"].var())
+    d = df[(df["mix_ratio"] > 0) & (df["mix_ratio"] < 1)]
+    mu, tot = d["adv"].mean(), float(((d["adv"] - d["adv"].mean()) ** 2).sum())
+    stats = []
     for k, lab in LABELS.items():
-        m = df.groupby(k)["adv"].mean()
-        spans.append((lab, float(m.min()), float(m.max()), float(m.max() - m.min())))
-    spans.sort(key=lambda t: t[3])
-    fig, ax = plt.subplots(figsize=(9, 3.3))
-    ys = np.arange(len(spans))
-    for y, (lab, lo, hi, span) in zip(ys, spans):
+        g = d.groupby(k)["adv"]
+        m = g.mean()
+        eta = float((g.count() * (m - mu) ** 2).sum() / tot)
+        stats.append((lab, float(m.min()), float(m.max()), eta))
+    stats.sort(key=lambda t: t[3])
+    noise_share = noise_var / float(d["adv"].var())
+
+    fig, (ax, bx) = plt.subplots(1, 2, figsize=(11, 3.6), sharey=True,
+                                 gridspec_kw={"width_ratios": [1.6, 1]})
+    ys = np.arange(len(stats))
+    for y, (lab, lo, hi, _) in zip(ys, stats):
         ax.plot([lo, hi], [y, y], color=C_GUIDED, lw=6, solid_capstyle="round", alpha=0.8)
         ax.plot(lo, y, "o", color=C_LOSE, ms=7)
         ax.plot(hi, y, "o", color=C_WIN, ms=7)
     ax.axvline(0, color="k", lw=0.9, ls="--")
     ax.set_yticks(ys)
-    ax.set_yticklabels([s[0] for s in spans])
-    ax.set_xlabel("Whole-area advantage  Δ = random − guided MAE  (positive = guided better)")
+    ax.set_yticklabels([s[0] for s in stats])
+    ax.set_xlabel("(a) Mean advantage  Δ = random − guided MAE")
     ax.grid(axis="x", alpha=0.25)
+    bx.barh(ys, [100 * s[3] for s in stats], color=C_GUIDED, alpha=0.8)
+    bx.axvline(100 * noise_share, color=C_INIT, lw=1.2, ls="--")
+    bx.text(100 * noise_share, len(stats) - 0.6, " seed noise", color=C_INIT,
+            va="center", fontsize=9)
+    bx.set_xlabel("(b) Variance of Δ explained (%)")
+    bx.grid(axis="x", alpha=0.25)
+    fig.tight_layout()
     out = FIGDIR / "fig_global_sensitivity.png"
     fig.savefig(out, dpi=150, bbox_inches="tight")
     plt.close(fig)
+    print(f"noise share {noise_share:.3f}; win rate on slice {(d['adv'] > 0).mean():.3f}")
     return out
 
 
