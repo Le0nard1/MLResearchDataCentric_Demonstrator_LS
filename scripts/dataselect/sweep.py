@@ -172,6 +172,10 @@ def make_param_key(params: dict) -> str:
         # mix_ratio=1.0 is pure guided (historical default) → key-neutral.
         if k == "mix_ratio" and float(params.get(k, 1.0)) == 1.0:
             continue
+        # diag_sample="eval" (diagnose on the evaluation sample) is the historical
+        # default → key-neutral; "heldout" gets distinct keys.
+        if k == "diag_sample" and str(params.get(k, "eval")) == "eval":
+            continue
         parts.append(f"{k}={params[k]}")
     return "|".join(parts)
 
@@ -300,6 +304,19 @@ def run_one(params: dict) -> list[dict]:
                          warm_start=warm, early_stopping=es)
     model0.fit(X_tr0, y_tr0)
     _, err0, mi = P.evaluate(model0, X_eval, y_eval)
+
+    # ---- diagnosis sample ----
+    # "eval" (default): the detectors read the initial model's error on the
+    # evaluation sample itself. "heldout": they read it on a second, independent
+    # noiseless sample of the same size, drawn from its own RNG so that every other
+    # draw (pool, baseline, selection) stays identical to the "eval" run.
+    if str(params.get("diag_sample", "eval")) == "heldout":
+        rng_d = np.random.RandomState(int(params["seed"]) + 1_000_003)
+        X_diag = P.sample_inputs(int(params["n_eval"]), rng_d, shift_strength=0.0)
+        y_diag = P.true_function(X_diag, n_bumps=nb)
+        _, err_diag, _ = P.evaluate(model0, X_diag, y_diag)
+    else:
+        X_diag, err_diag = X_eval, err0
     ein0, eout0 = _region(err0)
 
     # ---- candidate pool (shared) ----
@@ -327,7 +344,7 @@ def run_one(params: dict) -> list[dict]:
     for name in SWEEP_DETECTORS:
         fn = DETECTION_METHODS[name]
         try:
-            surf0 = P.normalize_surface(fn(X_eval, err0, grid_flat))
+            surf0 = P.normalize_surface(fn(X_diag, err_diag, grid_flat))
             ext = extract_weakspot(surf0, xx, yy, threshold_quantile=extract_q)
             iou = iou_ellipse_at_thresholds(surf0, xx, yy, gt_mask, (IOU_HEADLINE_Q,))
             if ext is None:

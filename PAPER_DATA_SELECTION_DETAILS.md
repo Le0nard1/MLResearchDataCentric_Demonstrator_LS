@@ -115,6 +115,7 @@ Sweep configs live in `scripts/dataselect/sweep_configs/`; each writes
 | 4.2 Broad sweep, Table 1, Figure 2 | `alpha_boundary` (five detectors) | `python run_sweep.py --config alpha_boundary --workers N` |
 | 4.3 Guidance fraction, Figure 3 left | `iso_mix_knn` | `python run_sweep.py --config iso_mix_knn --workers N` |
 | 4.3 Kernel width, Figure 3 right | `iso_gaussian_knn` | `python run_sweep.py --config iso_gaussian_knn --workers N` |
+| 4.3 Independent-diagnosis check | `iso_mix_knn_heldout` (`diag_sample = heldout`: detectors read the initial model's error on a second, independent noiseless sample from its own RNG; pool, baseline and evaluation sample identical to `iso_mix_knn`) | `python run_sweep.py --config iso_mix_knn_heldout --workers N` |
 | 4.4 Spatial analysis, Figure 4 | error-landscape study | `python -m scripts.generate_error_landscape_figure --mix 0.2 --sigma 0.1` |
 | 4.4 per-seed statistics | `iso_mix_knn` at $\alpha = 0.2$ | (same CSV as 4.3) |
 | Appendix B above | `best_vary_detector` | `python run_sweep.py --config best_vary_detector --workers N` |
