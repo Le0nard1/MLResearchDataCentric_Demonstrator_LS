@@ -59,7 +59,7 @@ PANELS = [("synth2", "$d=2$"), ("synth5", "$d=5$"), ("synth10", "$d=10$"),
 
 
 def fig(tab, out, noise="gauss"):
-    fig, axes = plt.subplots(1, len(PANELS), figsize=(19, 3.9), constrained_layout=True)
+    fig, axes = plt.subplots(1, len(PANELS), figsize=(19, 4.3), constrained_layout=True)
     for ax, (task, title) in zip(axes, PANELS):
         nz = "real" if task == "cal8" else noise
         g = tab[(tab.task == task) & (tab.noise == nz)]
@@ -74,7 +74,8 @@ def fig(tab, out, noise="gauss"):
         ax.set_xlabel("error added outside (%)")
         ax.grid(alpha=0.3)
     axes[0].set_ylabel("weakspot error removed (%)")
-    axes[0].legend(fontsize=7, loc="upper left")
+    h, l = axes[0].get_legend_handles_labels()
+    fig.legend(h, l, loc="outside lower center", ncol=len(l), fontsize=9, frameon=False)
     fig.savefig(out, dpi=200)
     plt.close(fig)
 
