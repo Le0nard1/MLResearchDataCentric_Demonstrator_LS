@@ -16,6 +16,15 @@ per-example weight w_i (mean 1), i.e. equal data and equal compute for every arm
     jtt       Just Train Twice: the top-q residual set weighted lam, the rest 1
     density   w = (1-a) + a d/mean d, d the distance to the 5th nearest training
               neighbour (coverage: up-weights sparsely sampled regions)
+    smoothed_loss  loss weighting on kNN-smoothed residuals (k = 10): regional
+              averaging without a single centre (ablation of the weakspot arm)
+    random_centre  the weakspot kernel (same alpha, sigma) around a random training
+              point instead of the detected centre, averaged over N_RAND draws:
+              the control for whether the detected location carries information
+    oracle    the weakspot kernel around the true region centre (synthetic only)
+
+Every row also records the effective sample size of its weights,
+ESS = (sum w)^2 / (N sum w^2) in (0, 1], the strength of the intervention.
 
 Tasks
     synthetic   the Gaussian-bump target on [0,1]^2; the region R (centre (0.25,0.75),
@@ -88,7 +97,12 @@ HP_GRID = {
     "loss": [dict(alpha=a) for a in (0.2, 0.5, 0.8, 1.0)],
     "jtt": [dict(q=q, lam=l) for q in (0.1, 0.2) for l in (2, 5, 10, 20)],
     "density": [dict(alpha=a) for a in (0.2, 0.5, 0.8, 1.0)],
+    "smoothed_loss": [dict(alpha=a) for a in (0.2, 0.5, 0.8, 1.0)],
 }
+# Controls that reuse the weakspot arm's frozen (alpha, sigma) and are not tuned.
+CONTROLS = {"synthetic": ["random_centre", "oracle"], "california": ["random_centre"]}
+N_RAND = 5
+K_SMOOTH = 10
 
 
 # ─────────────────────────────────────────────────────────────
@@ -235,11 +249,25 @@ def _mix(score, alpha):
     return w / w.mean()
 
 
+def ess(w):
+    """Effective sample size as a fraction of N (1 = uniform)."""
+    return float(w.sum() ** 2 / (len(w) * (w ** 2).sum()))
+
+
+def smoothed(X, r, k=K_SMOOTH):
+    """Mean residual over each point's k nearest neighbours (itself included)."""
+    idx = cKDTree(X).query(X, k=min(k, len(X)))[1]
+    return r[idx].mean(1)
+
+
 def weights(arm, hp, X_tr, res_tr, c_hat):
+    """``c_hat`` is the kernel centre: detected, random or true, per arm."""
     if arm == "uniform":
         return np.ones(len(X_tr))
-    if arm == "weakspot":
+    if arm in ("weakspot", "random_centre", "oracle"):
         return _mix(P.gaussian_weights(X_tr, c_hat, hp["sigma"]), hp["alpha"])
+    if arm == "smoothed_loss":
+        return _mix(smoothed(X_tr, res_tr), hp["alpha"])
     if arm == "loss":
         return _mix(res_tr, hp["alpha"])
     if arm == "jtt":
@@ -309,19 +337,29 @@ def run_one(task, cond, seed, arm_hps, keep_maps=False):
     if task == "california":
         maps["initial_ev"] = e0
 
-    for arm, hp in arm_hps:
+    def cont(w):
         m = copy.deepcopy(m0)
         mlp = m.named_steps["model"]      # fixed compute: no early or convergence stop
         mlp.set_params(max_iter=FIXED["iters_cont"], early_stopping=False,
                        n_iter_no_change=FIXED["iters_cont"] + 1)
         mlp.best_loss_ = np.inf
-        w = weights(arm, hp, X_tr, res_tr, c_hat)
         m.fit(X_tr, y_tr, model__sample_weight=w)
-        s, e = score(m)
+        return m
+
+    rng_c = np.random.RandomState(seed + 11)
+    rand_centres = X_tr[rng_c.choice(len(X_tr), N_RAND, replace=False)]
+    for arm, hp in arm_hps:
+        centres = {"random_centre": rand_centres, "oracle": [c]}.get(arm, [c_hat])
+        fits = [(cont(w), w) for w in (weights(arm, hp, X_tr, res_tr, cc)
+                                       for cc in centres)]
+        scored = [score(m) for m, _ in fits]
+        s = {k: float(np.mean([sc[0][k] for sc in scored])) for k in scored[0][0]}
+        e = np.mean([sc[1] for sc in scored], axis=0)
         tag = arm + ("" if not hp else "|" + ",".join(f"{k}={v}" for k, v in hp.items()))
-        rows.append({**base, "arm": arm, "hp": tag, **s})
+        rows.append({**base, "arm": arm, "hp": tag, **s,
+                     "ess": float(np.mean([ess(w) for _, w in fits]))})
         if grid_map is not None:
-            maps[arm] = np.abs(f_map - m.predict(grid_map))
+            maps[arm] = np.mean([np.abs(f_map - m.predict(grid_map)) for m, _ in fits], 0)
         if task == "california":
             maps[arm + "_ev"] = e
     if task == "california" and keep_maps:
@@ -391,23 +429,25 @@ def setup(workers):
     print(g.round(3).to_string())
 
 
-def pilot(workers, tasks):
+def pilot(workers, tasks, arms=None):
     from joblib import Parallel, delayed
-    arm_hps = [("uniform", {})] + [(a, hp) for a, g in HP_GRID.items() for hp in g]
+    arms = arms or list(HP_GRID)
+    arm_hps = [("uniform", {})] + [(a, hp) for a in arms for hp in HP_GRID[a]]
     jobs = [(t, REFERENCE[t], s) for t in tasks for s in PILOT_SEEDS]
     out = Parallel(n_jobs=workers)(delayed(_safe)(t, c, s, arm_hps, False, dict(FIXED))
                                    for t, c, s in jobs)
     df = pd.DataFrame([r for rows, _ in out for r in rows])
     f = RES / "fixed_data_pilot.csv"
-    if f.exists():
+    if f.exists():                    # keep other tasks' and other arms' pilot rows
         old = pd.read_csv(f)
-        df = pd.concat([old[~old.task.isin(tasks)], df])
+        old = old[~(old.task.isin(tasks) & old.arm.isin(arms + ["uniform"]))]
+        df = pd.concat([old, df])
     df.to_csv(f, index=False)
     chosen = json.loads(HP_FILE.read_text()) if HP_FILE.exists() else {}
     for task, g in df[(df.arm != "ERROR") & df.task.isin(tasks)].groupby("task"):
         m = g.groupby(["arm", "hp"])["mae"].mean()
-        chosen[task] = {}
-        for arm in HP_GRID:
+        chosen.setdefault(task, {})
+        for arm in arms:
             best = m.loc[arm].idxmin()
             chosen[task][arm] = next(hp for hp in HP_GRID[arm] if arm + "|" + ",".join(
                 f"{k}={v}" for k, v in hp.items()) == best)
@@ -419,7 +459,8 @@ def frontier(workers, tasks):
     """Every arm over its whole pilot grid on the reported seeds, reference condition:
     the in-weakspot / outside trade-off each signal traces (descriptive, no selection)."""
     from joblib import Parallel, delayed
-    arm_hps = [("uniform", {})] + [(a, hp) for a, g in HP_GRID.items() for hp in g]
+    arm_hps = ([("uniform", {})] + [(a, hp) for a, g in HP_GRID.items() for hp in g]
+               + [("random_centre", hp) for hp in HP_GRID["weakspot"]])
     jobs = [(t, REFERENCE[t], s) for t in tasks for s in MAIN_SEEDS]
     out = Parallel(n_jobs=workers)(delayed(_safe)(t, c, s, arm_hps, False, dict(FIXED))
                                    for t, c, s in jobs)
@@ -434,7 +475,8 @@ def main_stage(workers, tasks):
     for task, conds in CONDITIONS.items():
         if task not in tasks:
             continue
-        arm_hps = [("uniform", {})] + [(a, chosen[task][a]) for a in HP_GRID]
+        arm_hps = ([("uniform", {})] + [(a, chosen[task][a]) for a in HP_GRID]
+                   + [(a, chosen[task]["weakspot"]) for a in CONTROLS[task]])
         jobs = [(c, s) for c in conds for s in MAIN_SEEDS]
         t0 = time.time()
         out = Parallel(n_jobs=workers)(
@@ -463,6 +505,7 @@ def main():
     ap.add_argument("--stage", choices=["setup", "pilot", "main", "smoke", "ratio", "frontier"], required=True)
     ap.add_argument("--workers", type=int, default=12)
     ap.add_argument("--tasks", nargs="+", default=list(CONDITIONS))
+    ap.add_argument("--arms", nargs="+", default=None, help="pilot: arms to tune")
     a = ap.parse_args()
     if a.stage == "smoke":
         t0 = time.time()
@@ -480,7 +523,7 @@ def main():
     elif a.stage == "setup":
         setup(a.workers)
     elif a.stage == "pilot":
-        pilot(a.workers, a.tasks)
+        pilot(a.workers, a.tasks, a.arms)
     else:
         main_stage(a.workers, a.tasks)
 

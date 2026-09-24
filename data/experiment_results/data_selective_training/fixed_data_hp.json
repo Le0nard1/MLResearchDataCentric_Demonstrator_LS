@@ -13,6 +13,9 @@
     },
     "density": {
       "alpha": 0.2
+    },
+    "smoothed_loss": {
+      "alpha": 0.2
     }
   },
   "synthetic": {
@@ -29,6 +32,9 @@
     },
     "density": {
       "alpha": 0.8
+    },
+    "smoothed_loss": {
+      "alpha": 0.2
     }
   }
 }

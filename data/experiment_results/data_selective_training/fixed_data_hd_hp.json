@@ -1,0 +1,117 @@
+{
+  "cal8": {
+    "weakspot": {
+      "alpha": 0.2,
+      "q": 0.3
+    },
+    "weakspot_emb": {
+      "alpha": 0.2,
+      "q": 0.3
+    },
+    "loss": {
+      "alpha": 0.2
+    },
+    "smoothed_loss": {
+      "alpha": 0.2
+    },
+    "jtt": {
+      "q": 0.1,
+      "lam": 2
+    },
+    "density": {
+      "alpha": 1.0
+    }
+  },
+  "synth10": {
+    "weakspot": {
+      "alpha": 0.5,
+      "q": 0.3
+    },
+    "weakspot_emb": {
+      "alpha": 0.2,
+      "q": 0.3
+    },
+    "loss": {
+      "alpha": 0.2
+    },
+    "smoothed_loss": {
+      "alpha": 0.2
+    },
+    "jtt": {
+      "q": 0.2,
+      "lam": 2
+    },
+    "density": {
+      "alpha": 0.2
+    }
+  },
+  "synth2": {
+    "weakspot": {
+      "alpha": 0.2,
+      "q": 0.3
+    },
+    "weakspot_emb": {
+      "alpha": 0.5,
+      "q": 0.3
+    },
+    "loss": {
+      "alpha": 0.2
+    },
+    "smoothed_loss": {
+      "alpha": 0.2
+    },
+    "jtt": {
+      "q": 0.2,
+      "lam": 2
+    },
+    "density": {
+      "alpha": 1.0
+    }
+  },
+  "synth20": {
+    "weakspot": {
+      "alpha": 0.2,
+      "q": 0.3
+    },
+    "weakspot_emb": {
+      "alpha": 0.2,
+      "q": 0.3
+    },
+    "loss": {
+      "alpha": 0.2
+    },
+    "smoothed_loss": {
+      "alpha": 0.2
+    },
+    "jtt": {
+      "q": 0.2,
+      "lam": 2
+    },
+    "density": {
+      "alpha": 0.2
+    }
+  },
+  "synth5": {
+    "weakspot": {
+      "alpha": 0.2,
+      "q": 0.3
+    },
+    "weakspot_emb": {
+      "alpha": 0.2,
+      "q": 0.3
+    },
+    "loss": {
+      "alpha": 0.2
+    },
+    "smoothed_loss": {
+      "alpha": 0.2
+    },
+    "jtt": {
+      "q": 0.2,
+      "lam": 2
+    },
+    "density": {
+      "alpha": 0.2
+    }
+  }
+}

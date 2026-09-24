@@ -25,7 +25,8 @@ import matplotlib.pyplot as plt
 from scripts.dataselect.plot_baselines import holm
 
 RES = Path("data/experiment_results/data_selective_training")
-ARMS = ["weakspot", "gated", "loss", "jtt", "density"]
+ARMS = ["weakspot", "gated", "loss", "jtt", "density", "smoothed_loss", "random_centre",
+        "oracle"]
 R_CAL = 0.2
 
 
@@ -81,10 +82,14 @@ def table(df):
                             detect_dist=a.detect_dist.mean(),
                             uni_mae=a.mae_u.mean(), init_mae=a.init_mae.mean(),
                             uni_in=a.err_in_u.mean(), init_in=a.init_in.mean(),
+                            ess=a.ess.mean() if "ess" in a else np.nan,
                             hp=a.hp.iloc[0], n=len(a)))
         s = pd.DataFrame(sub)
-        s["p_holm"] = holm(s.p.to_numpy())
-        s["p_in_holm"] = holm(s.p_in.to_numpy())
+        # Holm within each family: the competing signals, and separately the
+        # location controls (random / oracle centre), which answer another question
+        s["family"] = np.where(s.arm.isin(["random_centre", "oracle"]), "control", "signal")
+        for col, out in (("p", "p_holm"), ("p_in", "p_in_holm")):
+            s[out] = s.groupby("family")[col].transform(lambda x: holm(x.to_numpy()))
         rows.append(s)
     return pd.concat(rows, ignore_index=True)
 
@@ -148,6 +153,37 @@ def fig_california(maps, df, out):
 
 STYLE = {"weakspot": ("Weakspot (ours)", "#1f77b4", "o"), "loss": ("Per-point loss", "#8c564b", "s"),
          "jtt": ("JTT", "#d62728", "^"), "density": ("Density", "#9467bd", "D")}
+STYLE_C = {"weakspot": ("Weakspot, detected centre", "#1f77b4", "o"),
+           "random_centre": ("Same kernel, random centre", "#7f7f7f", "x"),
+           "smoothed_loss": ("Smoothed loss (no centre)", "#2ca02c", "v"),
+           "loss": ("Per-point loss", "#8c564b", "s"), "jtt": ("JTT", "#d62728", "^")}
+
+
+def fig_controls(out):
+    """Inside-weakspot change against intervention strength (1 - ESS) over each arm's
+    grid, reported seeds, reference condition: is the gain the location, or the reshaping?"""
+    fr = pd.read_csv(RES / "fixed_data_frontier.csv")
+    fr = fr[fr.arm != "ERROR"]
+    fig, axes = plt.subplots(1, 2, figsize=(10.5, 3.9), constrained_layout=True)
+    for ax, task, title in zip(axes, ["synthetic", "california"],
+                               ["(a) Synthetic, hard region", "(b) California housing"]):
+        g = fr[fr.task == task].groupby(["arm", "hp"])[["err_in", "mae", "ess"]].mean()
+        u = g.loc["uniform"].iloc[0]
+        for arm, (lab, col, mk) in STYLE_C.items():
+            if arm not in g.index.get_level_values(0):
+                continue
+            a = g.loc[arm]
+            ok = a[a.mae <= u.mae * 1.6]
+            ax.scatter(100 * (1 - ok.ess), 100 * (1 - ok.err_in / u.err_in), c=col, marker=mk,
+                       s=26, label=lab, alpha=0.85)
+        ax.axhline(0, c="k", lw=0.6)
+        ax.set_xlabel("intervention strength, $1-$ESS (%)")
+        ax.set_title(title)
+        ax.grid(alpha=0.3)
+    axes[0].set_ylabel("weakspot error removed vs uniform (%)")
+    axes[0].legend(fontsize=7, loc="upper left")
+    fig.savefig(out, dpi=200)
+    plt.close(fig)
 
 
 def fig_frontier(out):
@@ -233,7 +269,7 @@ def main():
     tab.to_csv(RES / "fixed_data_summary.csv", index=False)
     pd.set_option("display.width", 260)
     cols = ["task", "region", "noise", "arm", "whole", "p_holm", "inside", "p_in_holm",
-            "outside", "gate_pass", "detect_dist", "uni_mae", "init_mae", "uni_in", "init_in"]
+            "outside", "ess", "gate_pass", "detect_dist", "uni_mae", "init_mae", "uni_in", "init_in"]
     print(tab[cols].round(3).to_string())
     print(json.loads((RES / "fixed_data_hp.json").read_text()))
     (RES / "figures").mkdir(exist_ok=True)
@@ -241,6 +277,7 @@ def main():
     fig_california(maps, df, RES / "figures" / "fig_fixed_data_california.png")
     fig_frontier(RES / "figures" / "fig_fixed_data_frontier.png")
     fig_combined(maps, RES / "figures" / "fig_fixed_data_combined.png")
+    fig_controls(RES / "figures" / "fig_fixed_data_controls.png")
 
 
 if __name__ == "__main__":
