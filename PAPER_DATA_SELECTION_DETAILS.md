@@ -184,3 +184,13 @@ row. Gate = share of seeds passing the permutation test.
 | none, gauss | -0.4 | -0.5 | +1.8** | +1.3* | +1.2* | 0.060 | 0.88 |
 | none, hetero | -4.3** | -0.9* | -5.8** | -3.4** | +0.8** | 0.076 | 0.20 |
 | none, outlier | +0.2 | +0.0 | -53.7** | -17.4** | +1.3* | 0.149 | 0.06 |
+
+**Operating-point error landscape (removed from the paper 2026-09-24).** Figure
+`figures/fig_error_landscape.png` (generator `scripts/generate_error_landscape_figure.py
+--mix 0.2 --sigma 0.1`, config `landscape_knn`), α = 0.2, σ = 0.1, 50 seeds, at the barely
+fitted operating point. Initial error 1.83 inside the gap vs 0.71 outside; detector distance
+0.068, IoU 0.32. Guided retraining removes 1.20 inside / 0.27 outside, random 0.88 / 0.20;
+per-seed guided − random: whole −0.129 ± 0.091 (p = 0.02), inside −0.33 ± 0.22 (p = 0.002),
+outside −0.08 ± 0.06 (p = 0.04). Removed because the regime is confounded (the error drops
+over every bump, not only the gap); the fixed-data maps (paper Figure 4) show the spatial
+repair in a valid regime.
