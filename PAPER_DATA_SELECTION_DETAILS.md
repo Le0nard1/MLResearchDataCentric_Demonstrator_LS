@@ -140,13 +140,47 @@ Script `scripts/dataselect/fixed_data.py` (stages in order):
 | Frontier (every grid setting, reported seeds, descriptive) | `--stage frontier` | `fixed_data_frontier.csv` |
 | Effect-size gate ratios | `--stage ratio` | `fixed_data_ratio.csv` |
 
-Table 3 and Figures 3–4 (+ App. B California map): `python -m scripts.dataselect.plot_fixed_data`
+Table 2 and Figures 3–4 (+ App. B California map): `python -m scripts.dataselect.plot_fixed_data`
 → `fixed_data_summary.csv`, `figures/fig_fixed_data_{frontier,maps,california}.png`.
 
-Gate on the Table 2 well-trained regimes: `python -m scripts.dataselect.gate` → `gate_v2.csv`,
+Gate on the Table 1 well-trained regimes: `python -m scripts.dataselect.gate` → `gate_v2.csv`,
 `gate_v2_summary.csv` (replicates `baselines.run_one`'s initial model exactly; checked).
 
 California housing is read from `~/scikit_learn_data/cal_housing_raw.npy` (the raw
 `cal_housing.data` array; sklearn's own downloader crashed on this machine). Its detection
 surface is masked to grid cells within 0.05 of the data (`support_dist`) — without the mask
 the kNN map extrapolated coastal errors into the ocean and the detected centres fell offshore.
+
+### Moved out of the paper's main text (condensed 2026-09-24)
+
+**Operating point (Sections 4.2–4.4, selection protocol).** Fixed at the favourable end of
+the broad-sweep trends by an exploratory search slightly beyond the grid, not re-tuned:
+initial model 12 iterations on 100 points, budget 100 points, retraining 400 iterations,
+gap radius 0.25 at the tallest bump (0.5, 0.5); detector kNN performance mapping (its
+broad-sweep advantage lies closest to the mean of the five detectors). The initial model
+is barely fitted (MAE 0.95 vs 0.77 for the constant mean), and the detector finds the same
+centre with or without the gap (distance 0.068).
+
+**Well-trained regime (Section 4.4).** 200 iterations on 400 points (MAE 0.33), gap of
+radius 0.2 on the lower bump at (0.25, 0.75), which the model fits well without the gap.
+Chosen on pilot seeds 2000–2019 from diagnosis validity only (`pilot_setup.py`); kernel
+width for old+new retraining σ = 0.5 from `pilot_cumulative.py` on the same seeds.
+Weakspot σ = 0.1 otherwise. Random-baseline MAE (initial): undertrained gap 0.557 (0.94),
+no gap 0.560 (0.94); well-trained new only 0.384 (0.33), old+new 0.264 (0.33).
+
+**Full fixed-data table (Section 4.5, paper Table 2 shows a subset).** Error reduction vs
+uniform continuation in %, whole area (inside the weakspot); Wilcoxon, Holm-corrected per
+row. Gate = share of seeds passing the permutation test.
+
+| Condition | Weakspot | Gated | Loss | JTT | Density | Uniform MAE | Gate |
+|---|---|---|---|---|---|---|---|
+| California | +0.3 (+1.3**) | +0.0 (+0.1) | -2.3** (-2.4**) | -3.7** (-4.2**) | -0.1 (+0.1) | 0.675 | 0.08 |
+| hard, gauss | -2.0** (+4.3**) | -1.9** (+4.1**) | -2.4** (+3.6**) | -0.5 (+4.8**) | +0.9* (+0.3) | 0.113 | 0.96 |
+| hard, hetero | -0.7 (+3.2**) | -0.8 (+2.6**) | -3.2** (+1.9**) | -3.0** (+3.4**) | +0.8** (-0.3) | 0.130 | 0.78 |
+| hard, outlier | +0.1 (+1.4**) | -0.1 (+0.1) | -33.7** (-7.7**) | -13.0** (-1.4**) | +0.6 (+0.2) | 0.195 | 0.06 |
+| hole, gauss | +0.6 (+1.3) | +0.6 (+1.4) | +1.7** (+1.5) | +1.9** (+2.2) | +0.4 (+0.6) | 0.102 | 0.96 |
+| hole, hetero | -1.4 (+1.2) | +0.9 (+2.0*) | -1.9* (+3.1*) | -0.5 (+4.6**) | +0.8 (+0.6) | 0.123 | 0.36 |
+| hole, outlier | +0.7 (+1.7) | +0.0 (+0.0) | -39.4** (-6.8) | -12.6** (-0.4) | +0.6 (+0.7) | 0.179 | 0.00 |
+| none, gauss | -0.4 | -0.5 | +1.8** | +1.3* | +1.2* | 0.060 | 0.88 |
+| none, hetero | -4.3** | -0.9* | -5.8** | -3.4** | +0.8** | 0.076 | 0.20 |
+| none, outlier | +0.2 | +0.0 | -53.7** | -17.4** | +1.3* | 0.149 | 0.06 |
