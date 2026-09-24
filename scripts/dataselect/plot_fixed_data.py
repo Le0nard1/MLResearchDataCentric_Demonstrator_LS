@@ -176,6 +176,55 @@ def fig_frontier(out):
     plt.close(fig)
 
 
+def _frontier_panel(ax, fr, task, title, legend=False):
+    g = fr[fr.task == task].groupby(["arm", "hp"])[["err_in", "err_out", "mae"]].mean()
+    u = g.loc["uniform"].iloc[0]
+    for arm, (lab, col, mk) in STYLE.items():
+        a = g.loc[arm]
+        ok = a[a.err_out <= u.err_out * 1.6]       # drop collapsed settings off-scale
+        ax.scatter(100 * (ok.err_out / u.err_out - 1), 100 * (ok.err_in / u.err_in - 1),
+                   c=col, marker=mk, s=22, label=lab, alpha=0.85)
+    ax.axhline(0, c="k", lw=0.6)
+    ax.axvline(0, c="k", lw=0.6)
+    ax.scatter([0], [0], c="k", marker="*", s=100, zorder=5, label="Uniform")
+    ax.set_xlabel("outside the weakspot (%)")
+    ax.set_ylabel("inside the weakspot (%)")
+    ax.set_title(title)
+    ax.grid(alpha=0.3)
+    if legend:
+        ax.legend(fontsize=7, loc="center right")
+
+
+def fig_combined(maps, out):
+    """One row: frontiers (synthetic, California) and the hard-region maps
+    (initial error; weakspot-weighted minus uniform continuation)."""
+    fr = pd.read_csv(RES / "fixed_data_frontier.csv")
+    fr = fr[fr.arm != "ERROR"]
+    fig, ax = plt.subplots(1, 4, figsize=(17, 3.9), constrained_layout=True,
+                           gridspec_kw=dict(width_ratios=[1, 1, 1.05, 1.05]))
+    _frontier_panel(ax[0], fr, "synthetic", "(a) Trade-off, hard region", legend=True)
+    _frontier_panel(ax[1], fr, "california", "(b) Trade-off, California")
+    k = "synthetic__"
+    init = maps[k + "initial"].mean(0)
+    d = maps[k + "weakspot"].mean(0) - maps[k + "uniform"].mean(0)
+    res = int(np.sqrt(init.size))
+    ext = (0, 1, 0, 1)
+    im = ax[2].imshow(init.reshape(res, res), origin="lower", extent=ext, cmap="viridis")
+    fig.colorbar(im, ax=ax[2], shrink=0.9, label="absolute error")
+    ax[2].set_title("(c) Initial error, hard region")
+    v = np.abs(d).max()
+    im = ax[3].imshow(d.reshape(res, res), origin="lower", extent=ext, cmap="RdBu_r",
+                      vmin=-v, vmax=v)
+    fig.colorbar(im, ax=ax[3], shrink=0.9, label="error change")
+    ax[3].set_title("(d) Weakspot-weighted $-$ uniform")
+    for a in ax[2:]:
+        a.add_patch(plt.Circle((0.25, 0.75), 0.2, fill=False, ls="--", lw=1.3, color="k"))
+        a.set_xlabel("$x_1$")
+        a.set_ylabel("$x_2$")
+    fig.savefig(out, dpi=200)
+    plt.close(fig)
+
+
 def main():
     df = pd.read_csv(RES / "fixed_data.csv")
     maps = dict(np.load(RES / "fixed_data_maps.npz"))
@@ -191,6 +240,7 @@ def main():
     fig_maps(maps, RES / "figures" / "fig_fixed_data_maps.png")
     fig_california(maps, df, RES / "figures" / "fig_fixed_data_california.png")
     fig_frontier(RES / "figures" / "fig_fixed_data_frontier.png")
+    fig_combined(maps, RES / "figures" / "fig_fixed_data_combined.png")
 
 
 if __name__ == "__main__":
