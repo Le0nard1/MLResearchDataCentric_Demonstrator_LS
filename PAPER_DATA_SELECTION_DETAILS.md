@@ -127,3 +127,26 @@ Per-seed statistics in the paper average the guided–baseline difference over t
 runs of each seed first (all levels of a sweep share one baseline draw per seed) and
 report a $t$-based 95 % confidence interval over the 50 seeds with a Wilcoxon
 signed-rank $p$-value.
+
+## Section 4.5 — fixed-data reweighting (restricted data)
+
+Script `scripts/dataselect/fixed_data.py` (stages in order):
+
+| Stage | Command | Output |
+|---|---|---|
+| Setup pilot (diagnosis validity only, seeds 3000–3019) | `python -m scripts.dataselect.fixed_data --stage setup` | `fixed_data_setup.csv` |
+| Hyperparameter pilot (same seeds, reference condition per task) | `--stage pilot` | `fixed_data_pilot.csv`, frozen `fixed_data_hp.json` |
+| Main run (fresh seeds 4000–4049, all conditions) | `--stage main` | `fixed_data.csv`, `fixed_data_maps.npz` |
+| Frontier (every grid setting, reported seeds, descriptive) | `--stage frontier` | `fixed_data_frontier.csv` |
+| Effect-size gate ratios | `--stage ratio` | `fixed_data_ratio.csv` |
+
+Table 3 and Figures 3–4 (+ App. B California map): `python -m scripts.dataselect.plot_fixed_data`
+→ `fixed_data_summary.csv`, `figures/fig_fixed_data_{frontier,maps,california}.png`.
+
+Gate on the Table 2 well-trained regimes: `python -m scripts.dataselect.gate` → `gate_v2.csv`,
+`gate_v2_summary.csv` (replicates `baselines.run_one`'s initial model exactly; checked).
+
+California housing is read from `~/scikit_learn_data/cal_housing_raw.npy` (the raw
+`cal_housing.data` array; sklearn's own downloader crashed on this machine). Its detection
+surface is masked to grid cells within 0.05 of the data (`support_dist`) — without the mask
+the kNN map extrapolated coastal errors into the ocean and the detected centres fell offshore.
