@@ -71,6 +71,24 @@ RES = Path("data/experiment_results/data_selective_training")
 HP_FILE = RES / "fixed_data_hp.json"
 CAL_RAW = Path.home() / "scikit_learn_data" / "cal_housing_raw.npy"
 
+
+def _cal_raw():
+    """Raw California housing table (longitude, latitude, ..., median house value).
+
+    Uses the local cache if present. Otherwise the needed columns are rebuilt from the
+    OpenML copy of the same data (id 44138, the version of the Grinsztajn et al.
+    benchmark used in Section 4.3), which holds the same rows in the same order with the
+    target stored as log(value + 1); the result is identical to the cached table.
+    """
+    if CAL_RAW.exists():
+        return np.load(CAL_RAW)
+    from scripts.dataselect.budget import _openml
+    X, y = _openml("houses")                  # columns: ..., latitude, longitude
+    a = np.zeros((len(y), 9))
+    a[:, 0], a[:, 1] = X[:, 7], X[:, 6]
+    a[:, 8] = np.round(np.expm1(y))
+    return a
+
 FIXED = dict(n_data=1000, val_frac=0.2, n_bumps=5, noise_std=0.05,
              centre=(0.25, 0.75), radius=0.2, hetero_centre=(0.75, 0.25),
              hetero_std=0.5, ripple_amp=3.0, ripple_freq=3.0, diag="all", outlier_frac=0.05, outlier_std=2.0,
@@ -161,7 +179,7 @@ _CAL = None
 def make_california(seed):
     global _CAL
     if _CAL is None:
-        a = np.load(CAL_RAW)
+        a = _cal_raw()
         X = a[:, :2].copy()
         X = (X - X.min(0)) / (X.max(0) - X.min(0))
         _CAL = (X, a[:, 8] / 1e5)

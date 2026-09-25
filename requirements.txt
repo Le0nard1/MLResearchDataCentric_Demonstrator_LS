@@ -1,11 +1,9 @@
-pandas
-numpy
-scikit-learn
-streamlit
-plotly
-matplotlib
-seaborn
-joblib
-scipy
-statsmodels
-tqdm
+# Tested with Python 3.12 and the versions below.
+numpy>=2.0          # tested 2.4.0
+pandas>=2.2         # tested 3.0.3
+scipy>=1.13         # tested 1.16.3
+scikit-learn>=1.8   # tested 1.8.0 (MLPRegressor with sample_weight)
+joblib>=1.4         # tested 1.5.3
+matplotlib>=3.8     # tested 3.10.8
+tqdm>=4.66
+pyarrow>=15         # tested 24.0.0 (OpenML parquet files)

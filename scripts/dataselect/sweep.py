@@ -73,7 +73,7 @@ FIXED_FIELDS = (
 CONFIG_DIR = Path(__file__).parent / "sweep_configs"
 # Per-experiment subfolder so this page's results sit apart from the weakspot ones.
 RESULTS_DIR = Path("data/experiment_results/data_selective_training")
-DEFAULT_CONFIG = "alpha_boundary_scratch"
+DEFAULT_CONFIG = "alpha_boundary"          # the broad sweep of Section 4.2
 
 
 def available_configs() -> list[str]:
