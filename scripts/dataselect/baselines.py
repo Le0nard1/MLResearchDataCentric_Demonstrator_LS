@@ -12,6 +12,17 @@ retraining on the selected points only, budget ``n_select``) and swaps only the
     density     sample proportional to the distance to the nearest training point
                 (soft, stochastic coverage of under-sampled regions)
     loss        highest per-point loss on the pool (per-example error signal)
+    rho         RHO-LOSS (Mindermann et al., 2022): highest reducible loss, the
+                initial model's loss minus an irreducible-loss (IL) model's loss.
+                The IL model is cross-fitted in two folds over the pool (trained on
+                the initial training set plus the other fold), so no candidate is
+                scored by a model that has seen it and no extra holdout is needed.
+                Static selection once per pass, not the original online variant.
+    rho_landscape  RHO-LOSS combined with our error landscape: reducible loss
+                (clipped at 0) times the approximated error surface e^(x) of the
+                weakspot identification, min-max scaled to [0,1] on the grid and
+                interpolated at the candidates. The landscape, not the single
+                centre, carries the regional signal.
     weakspot    Gaussian kernel around the detected weakspot centre (ours)
 
 The four targeted arms run at guidance fractions ``ALPHAS``; the remaining
@@ -48,6 +59,7 @@ warnings.filterwarnings("ignore")
 
 import numpy as np
 import pandas as pd
+from scipy.interpolate import RegularGridInterpolator
 from scipy.spatial import cKDTree
 
 from scripts.weakspot.models import AVAILABLE_MODELS, build_model
@@ -66,7 +78,7 @@ FIXED = dict(model_name="MLP Neural Network", complexity=0.5, n_bumps=5,
 GRID = dict(n_train=[100, 200, 400, 800], radius=[0.0, 0.2], n_select=[50, 100, 200])
 SEEDS = list(range(1000, 1050))          # fresh: disjoint from all earlier seeds
 ALPHAS = [0.2, 1.0]
-TARGETED = ["kcenter", "density", "loss", "weakspot"]
+TARGETED = ["kcenter", "density", "loss", "rho", "rho_landscape", "weakspot"]
 N_RANDOM = 5
 COLS = ["n_train", "radius", "n_select", "seed", "init_mae", "detect_dist", "arm",
         "alpha", "draw", "mae", "err_in", "err_out", "n_in_gap", "error"]
@@ -97,6 +109,38 @@ def pick_density(X_cand, X_tr, k, rng):
 def pick_loss(err_cand, k):
     """Top-k per-point loss (noisy labels)."""
     return np.argsort(err_cand)[-k:][::-1].astype(int)
+
+
+def irreducible_loss(key, X_tr, y_tr, X_cand, y_cand, seed):
+    """Cross-fitted IL: each pool half is scored by an MLP trained on the initial
+    training set plus the other half (same architecture as the initial model)."""
+    fold = np.random.RandomState(seed + 17).permutation(len(X_cand)) % 2
+    il = np.empty(len(X_cand))
+    for f in (0, 1):
+        m = build_model(key, complexity=FIXED["complexity"],
+                        iterations=FIXED["iters_initial"], warm_start=False,
+                        early_stopping=True)
+        o = fold != f
+        m.fit(np.vstack([X_tr, X_cand[o]]), np.concatenate([y_tr, y_cand[o]]))
+        il[fold == f] = np.abs(y_cand[fold == f] - m.predict(X_cand[fold == f]))
+    return il
+
+
+def landscape_at(surf, X):
+    """Approximated error surface (grid, min-max scaled) interpolated at ``X``."""
+    lin = np.linspace(0, 1, FIXED["grid_res"])
+    f = RegularGridInterpolator((lin, lin), surf.reshape(len(lin), len(lin)))
+    return f(np.clip(X[:, ::-1], 0, 1))        # grid rows are y, columns x
+
+
+def pick_rho(reducible, k):
+    """Top-k reducible loss (RHO-LOSS)."""
+    return np.argsort(reducible)[-k:][::-1].astype(int)
+
+
+def pick_rho_landscape(reducible, land, k):
+    """Top-k reducible loss weighted by the approximated error landscape."""
+    return np.argsort(np.maximum(reducible, 0.0) * land)[-k:][::-1].astype(int)
 
 
 def pick_weakspot(X_cand, centre, sigma, k, rng):
@@ -179,6 +223,8 @@ def run_one(n_train, radius, n_select, seed):
     c_hat = (np.asarray(ext["center"]) if ext is not None
              else grid_flat[int(np.argmax(surf))])
     dist = float(np.hypot(*(c_hat - centre))) if radius > 0 else np.nan
+    reducible = err_cand - irreducible_loss(key, X_tr, y_tr, X_cand, y_cand, seed)
+    land = landscape_at(surf, X_cand)
 
     base = dict(n_train=n_train, radius=radius, n_select=n_select, seed=seed,
                 init_mae=m0["MAE"], detect_dist=dist)
@@ -208,6 +254,10 @@ def run_one(n_train, radius, n_select, seed):
                 g = pick_density(X_cand, X_tr, k, r)
             elif arm == "loss":
                 g = pick_loss(err_cand, k)
+            elif arm == "rho":
+                g = pick_rho(reducible, k)
+            elif arm == "rho_landscape":
+                g = pick_rho_landscape(reducible, land, k)
             else:
                 g = pick_weakspot(X_cand, c_hat, FIXED["sel_sigma"], k, r)
             add(arm, alpha, 0, with_rehearsal(g, n_select, n_pool, r))
