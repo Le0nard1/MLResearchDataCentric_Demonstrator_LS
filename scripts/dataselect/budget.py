@@ -77,7 +77,19 @@ FIXED = dict(n_data=2000, n_init=500, n_select=200, n_eval=4000, q_region=0.1,
 # Grinsztajn et al. (2022) numerical regression suite (OpenML study 336): data id and
 # target; the suite's preprocessed parquet files, cached under ~/scikit_learn_data.
 OPENML = {"houses": (44138, "medianhousevalue"),
-          "medical_charges": (44146, "AverageTotalPayments")}
+          "medical_charges": (44146, "AverageTotalPayments"),
+          # Benchmark extension (Section 4.4): same dimensionality as the main comparison
+          # (at most ten features), one dataset per application domain.
+          "diamonds": (44140, "price"),
+          "sulfur": (44145, "y1"),
+          "brazilian_houses": (44141, "totalBRL"),
+          "nyc_taxi": (44143, "tipamount"),
+          # High-dimensional pilot (more than twenty features).
+          "cpu_act": (44132, "usr"),
+          "pol": (44133, "foo"),
+          "ailerons": (44137, "goal"),
+          "yprop_4_1": (45032, "oz252"),
+          "superconduct": (44148, "criticaltemp")}
 SUITE_DIR = Path.home() / "scikit_learn_data" / "grinsztajn"
 DATASETS = ["synth2d", "houses", "medical_charges"]
 RHOS = [0.0, 0.25, 1.0]
