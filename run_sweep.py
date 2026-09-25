@@ -9,7 +9,7 @@ CSV and is fully resumable: stop with Ctrl+C and rerun to continue.
 --------------------------------------------------------------------------------
 Quick start (Linux / EC2)
 --------------------------------------------------------------------------------
-    git clone <repo> && cd MLResearchDataCentric_Demonstrator_LS   # the repo root
+    cd <repository root>
     python3 -m venv .venv && source .venv/bin/activate
     pip install -r requirements.txt
 
