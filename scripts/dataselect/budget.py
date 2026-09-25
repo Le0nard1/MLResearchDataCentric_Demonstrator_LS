@@ -83,13 +83,7 @@ OPENML = {"houses": (44138, "medianhousevalue"),
           "diamonds": (44140, "price"),
           "sulfur": (44145, "y1"),
           "brazilian_houses": (44141, "totalBRL"),
-          "nyc_taxi": (44143, "tipamount"),
-          # High-dimensional pilot (more than twenty features).
-          "cpu_act": (44132, "usr"),
-          "pol": (44133, "foo"),
-          "ailerons": (44137, "goal"),
-          "yprop_4_1": (45032, "oz252"),
-          "superconduct": (44148, "criticaltemp")}
+          "nyc_taxi": (44143, "tipamount")}
 SUITE_DIR = Path.home() / "scikit_learn_data" / "grinsztajn"
 DATASETS = ["synth2d", "houses", "medical_charges"]
 RHOS = [0.0, 0.25, 1.0]
