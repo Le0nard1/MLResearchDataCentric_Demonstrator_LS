@@ -94,6 +94,11 @@ NOISES = ["clean", "outlier"]
 PILOT_SEEDS = list(range(6000, 6010))
 TUNE_SEEDS = list(range(6100, 6110))
 MAIN_SEEDS = list(range(7000, 7050))
+BENCH_DATASETS = ["diamonds", "sulfur", "brazilian_houses", "nyc_taxi"]
+BENCH_SEEDS = list(range(7000, 7010))
+HD_DATASETS = ["cpu_act", "pol", "ailerons", "yprop_4_1", "superconduct"]
+HD_REGIONS = ["hard", "sparse_all"]
+HD_SEEDS = list(range(7000, 7005))
 TUNED_FILE = RES / "budget_v2_tuned.json"      # written by hand from the tuning results
 TUNE_REGIONS = ["hard", "sparse_all"]
 TUNE_ALPHAS = [0.1, 0.2, 0.35, 0.5, 0.75, 1.0]
@@ -349,6 +354,26 @@ def run_main(name, region, noise, seed):
     def region_members(q):
         return np.flatnonzero(land >= np.quantile(land, q))
 
+    if f.get("bench"):
+        # Benchmark extension: the strong baselines and competitors of Table 1 and all
+        # four of our methods, same salts as the main comparison.
+        add("all_data", X_fit=X, y_fit=y)
+        rand = [retrain(rs(d).choice(nR, n, replace=False)) for d in range(N_RANDOM)]
+        rows.append({**base, "arm": "random",
+                     **{m: float(np.mean([s[m] for s in rand])) for m in rand[0]}})
+        add("uniform", pick_stratified(U_R, n, rs(50)))
+        add("rho", reh(top(reducible, k), 63))
+        mem = region_members(f["top_q"])
+        add("ws_default", reh(rs(66).choice(mem, min(k, len(mem)), replace=False), 67))
+        kt = max(1, int(round(t["alpha"] * n)))
+        mt = region_members(t["top_q"])
+        add("ws_tuned", reh(rs(68).choice(mt, min(kt, len(mt)), replace=False), 69))
+        k = n                                  # alpha = 1 arms
+        add("kcenter_a1", reh(pick_kcenter(U_R, U_I, k), 60))
+        add("rho_a1", reh(top(reducible, k), 63))
+        add("rho_landscape_a1", reh(top(np.maximum(reducible, 0) * land, k), 64))
+        add("rho_filter_a1", reh(mem[top(reducible[mem], min(k, len(mem)))], 65))
+        return rows
     if f.get("a1_only"):
         # Fairness check: every competitor at the tuned method's guidance fraction.
         # Runs are deterministic (seeded data, draws and MLP), so these rows pair with
@@ -498,7 +523,7 @@ def _safe(args, fixed=None):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--stage", choices=["pilot", "smoke", "tune", "tune_pilot", "tune_smoke", "main", "main_a1",
+    ap.add_argument("--stage", choices=["pilot", "smoke", "tune", "tune_pilot", "tune_smoke", "main", "main_a1", "bench", "bench_smoke", "hdpilot",
                              "main_smoke"],
                     required=True)
     ap.add_argument("--workers", type=int, default=19)
@@ -512,22 +537,34 @@ def main():
                                                     "n_init", "iters_initial"])
                           if tune else (_safe, COLS, ["dataset", "region", "noise",
                                                       "seed"]))
-    if a.stage in ("main", "main_smoke", "main_a1"):
+    if a.stage in ("main", "main_smoke", "main_a1", "bench", "bench_smoke", "hdpilot"):
         worker, cols = _safe_main, MAIN_COLS
     jobs = list(itertools.product(DATASETS, REGIONS, NOISES, PILOT_SEEDS))
     if tune:
         jobs = [(d, r, nz, s, ni, it) for d in DATASETS for r in TUNE_REGIONS
                 for nz in NOISES for (ni, it) in TUNE_HEADROOM
                 for s in (TUNE_SEEDS[:3] if a.stage == "tune_pilot" else TUNE_SEEDS)]
-    if a.stage in ("main", "main_smoke", "main_a1"):
+    if a.stage in ("main", "main_smoke", "main_a1", "bench", "bench_smoke", "hdpilot"):
         import json
         if not TUNED_FILE.exists():
             raise SystemExit(f"{TUNED_FILE} missing: fix the tuned setting from the "
                              "tuning experiment first, e.g. "
                              '{"alpha": 0.35, "top_q": 0.85, "detector": "knn"}')
         FIXED.update(main=True, tuned=json.loads(TUNED_FILE.read_text()),
-                     a1_only=(a.stage == "main_a1"))
+                     a1_only=(a.stage == "main_a1"),
+                     bench=a.stage.startswith("bench") or a.stage == "hdpilot")
         jobs = list(itertools.product(DATASETS, REGIONS, NOISES, MAIN_SEEDS))
+        if a.stage.startswith("bench"):
+            for name in BENCH_DATASETS:        # download once, before the workers start
+                _openml(name)
+            jobs = list(itertools.product(BENCH_DATASETS, REGIONS, NOISES, BENCH_SEEDS))
+        if a.stage == "hdpilot":             # pilot: high-dimensional datasets
+            for name in HD_DATASETS:
+                _openml(name)
+            jobs = list(itertools.product(HD_DATASETS, HD_REGIONS, NOISES, HD_SEEDS))
+        if a.stage == "bench_smoke":
+            jobs = [(d, "hard", "outlier", 7000) for d in BENCH_DATASETS]
+            out.unlink(missing_ok=True)
         if a.stage == "main_smoke":
             jobs = [(d, "hard", "outlier", 7000) for d in DATASETS]
             out.unlink(missing_ok=True)

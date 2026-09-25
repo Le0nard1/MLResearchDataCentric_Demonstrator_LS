@@ -26,6 +26,7 @@ below were measured with 19 worker processes on a 14-core machine.
 | §4.3 tuning | `python -m scripts.dataselect.budget_v2 --stage tune` then `python -m scripts.dataselect.summarise_tune tune` | `budget_v2_tune.csv`, tuned setting in `budget_v2_tuned.json` | 35 min |
 | §4.3 detector comparison (17 detectors) | `python -m scripts.dataselect.detector_pilot` | `detector_pilot.csv` | 5 min |
 | §4.4 comparison, Table 1 | `python -m scripts.dataselect.budget_v2 --stage main`, `python -m scripts.dataselect.budget_v2 --stage main_a1`, then `python -m scripts.dataselect.table_comparison` | `budget_v2_main.csv`, `budget_v2_main_a1.csv`, `table_comparison.csv` | 51 + 19 min |
+| §4.4 further benchmark datasets (Table 1, right-hand columns) | `python -m scripts.dataselect.budget_v2 --stage bench` then `python -m scripts.dataselect.summarise_bench` | `budget_v2_bench.csv`, `bench_summary.csv` | 6 min |
 | §4.4 severity / headroom analysis | `python -m scripts.dataselect.severity_analysis` | `budget_v2_severity.csv` | seconds |
 | §4.5 reweighting, fixed-data and location-control tables and figures | `python -m scripts.dataselect.fixed_data --stage setup`, `--stage pilot`, `--stage main`, `--stage frontier`, then `python -m scripts.dataselect.plot_fixed_data` | `fixed_data*.csv`, `fixed_data_maps.npz`, `fig_fixed_data_*.png` | not re-timed |
 | App. B, beyond two dimensions | `python -m scripts.dataselect.fixed_data_hd --stage frontier`, then `python -m scripts.dataselect.plot_fixed_data_hd` | `fixed_data_hd_frontier.csv`, `fig_fixed_data_hd.png` | not re-timed |
@@ -41,6 +42,7 @@ paper, so the tables can be checked without re-running the experiments:
 
 - `budget_v2_tune.csv` — tuning of weakspot selection (seeds 6100–6109)
 - `budget_v2_main.csv`, `budget_v2_main_a1.csv` — comparison, competitors at α = 0.2 and α = 1 (seeds 7000–7049)
+- `budget_v2_bench.csv` — further datasets: diamonds, sulfur, Brazilian houses, nyc-taxi (seeds 7000–7009)
 - `detector_pilot.csv` — selection with each of the 17 detectors (seeds 6200–6204)
 - `fixed_data*.csv`, `fixed_data_maps.npz`, `fixed_data_hp.json` — reweighting (pilot seeds 3000–3019, reported seeds 4000–4049)
 - `fixed_data_hd*.csv`, `fixed_data_hd_hp.json` — reweighting beyond two dimensions
