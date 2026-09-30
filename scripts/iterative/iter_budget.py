@@ -83,6 +83,11 @@ PILOT2_ARMS = (
        ("ws_half_adaptive", "region", "adaptive", "new", 0.5, 0.3, 86),
        ("ws_dynamic", "region", "dynamic", "new", 1.0, 0.3, 72),
        ("ws_adaptive", "region", "adaptive", "new", 1.0, 0.3, 73)])
+# Full Experiments 1-2 (Sections 4.2-4.3): every task, condition and label noise on
+# fresh seeds; the arms of the second pilot plus random selection retrained on the
+# accumulated set as the compute reference, on the first FULL["n_acc"] seeds only.
+FULL = dict(seeds=list(range(8100, 8120)), n_acc=10)
+ACC_REF = ("random_acc", "random", "static", "acc", 0.0, 0.0, 30)
 
 
 # Per-round traces for figures, filled only when FIXED["record"] is set (in-process).
@@ -155,7 +160,7 @@ PILOT_ARMS = (
 
 def run_one(name, region, noise, seed, stage="static"):
     f = FIXED
-    pilot = stage.startswith("pilot")
+    pilot = stage.startswith(("pilot", "full"))
     B.FIXED.update(n_data=f["n_data"])
     X, y, I, R, X_ev, y_ev, region_fn, to_U, _ = B.make(name, region, noise, seed)
     anchor = _closure(region_fn, "a")
@@ -248,7 +253,9 @@ def run_one(name, region, noise, seed, stage="static"):
                                  select_sec=select_sec) if pilot else {})})
 
     if pilot:
-        arms = PILOT2_ARMS if stage.startswith("pilot2") else PILOT_ARMS
+        arms = PILOT2_ARMS if stage.startswith(("pilot2", "full")) else PILOT_ARMS
+        if stage.startswith("full") and seed < FULL["seeds"][0] + FULL["n_acc"]:
+            arms = arms + [ACC_REF]
         for arm, method, schedule, regime, alpha, q, salt in arms:
             traj = salt % 10 if method == "random" else 0
             loop(arm, traj, alpha, q, salt, method, schedule, regime)
@@ -272,7 +279,8 @@ def _safe(args, fixed, stage="static"):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--stage", choices=["smoke", "static", "pilot", "pilot_smoke", "pilot2", "pilot2_smoke"], required=True)
+    ap.add_argument("--stage", choices=["smoke", "static", "pilot", "pilot_smoke", "pilot2", "pilot2_smoke",
+                             "full", "full_smoke"], required=True)
     ap.add_argument("--workers", type=int, default=19)
     ap.add_argument("--datasets", nargs="+", default=DATASETS, choices=DATASETS)
     ap.add_argument("--n-seeds", type=int, default=len(SEEDS),
@@ -289,7 +297,14 @@ def main():
     jobs = [(d, r, nz, s) for s in seeds
             for d, r, nz in itertools.product(a.datasets, REGIONS, NOISES)]
     keys = ["dataset", "region", "noise", "seed"]
-    cols = PILOT_COLS if a.stage.startswith("pilot") else COLS
+    cols = PILOT_COLS if a.stage.startswith(("pilot", "full")) else COLS
+    if a.stage.startswith("full"):
+        out = RES / f"iter_{a.stage}.csv"
+        jobs = [(d, r, nz, s) for s in FULL["seeds"]
+                for d, r, nz in itertools.product(DATASETS, REGIONS, NOISES)]
+        if a.stage == "full_smoke":
+            jobs = [(d, "hard", "outlier", FULL["seeds"][0]) for d in DATASETS]
+            out.unlink(missing_ok=True)
     if a.stage.startswith("pilot"):
         out = RES / f"iter_{a.stage}.csv"
         jobs = [(d, r, nz, s) for s in PILOT["seeds"] for d in PILOT["datasets"]
