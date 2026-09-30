@@ -195,7 +195,61 @@ def trace(name, region, seed):
     IB.run_one(name, region, "clean", seed, stage="pilot2")
     IB.FIXED.pop("record")
     return [t for t in IB.TRACE if t["arm"] in
-            ("random", "ws_tuned", "ws_dynamic", "ws_adaptive") and t["traj"] == 0]
+            ("random", "ws_tuned", "ws_half", "ws_dynamic", "ws_adaptive")
+            and t["traj"] == 0]
+
+
+def fig_exp2_rounds(tr, out, name):
+    """Detected weakspot after every round: the error landscape the detector saw,
+    its top-q region, its centre and the constructed region (synthetic task)."""
+    from sklearn.neighbors import KNeighborsRegressor
+    from matplotlib.colors import LinearSegmentedColormap
+    rows = [("random", "Random"), ("ws_tuned", "Static\n" r"$\alpha$=1"),
+            ("ws_half", "Static\n" r"$\alpha$=0.5"), ("ws_dynamic", "Dynamic\n" r"$\alpha$=1"),
+            ("ws_adaptive", "Adaptive\n" r"$\alpha$=1")]
+    seq = LinearSegmentedColormap.from_list(
+        "seq", ["#fcfcfb", "#cde2fb", "#86b6ef", "#3987e5", "#1c5cab", "#0d366b"])
+    g = np.linspace(0, 1, 90)
+    GX, GY = np.meshgrid(g, g)
+    grid = np.c_[GX.ravel(), GY.ravel()]
+    Z_true = tr[0]["region_fn"](grid).reshape(GX.shape)
+    first = [t for t in tr if t["round"] == 1][0]
+    vmax = np.quantile(first["land"], 0.99)       # one scale, anchored to round 1
+    q = IB.PILOT2_ARMS[4][5]                       # region size of the tuned step
+    fig, axes = plt.subplots(len(rows), 8, figsize=(7.0, 3.75), sharex=True, sharey=True)
+    for i, (arm, lab) in enumerate(rows):
+        rs = sorted([t for t in tr if t["arm"] == arm], key=lambda t: t["round"])
+        for j, t in enumerate(rs):
+            ax = axes[i, j]
+            knn = KNeighborsRegressor(10, weights="distance").fit(t["X_av"], t["land"])
+            Z = knn.predict(grid).reshape(GX.shape)
+            im = ax.imshow(Z, origin="lower", extent=(0, 1, 0, 1), cmap=seq, vmin=0,
+                           vmax=vmax, interpolation="bilinear", rasterized=True)
+            ax.contour(GX, GY, Z, levels=[np.quantile(t["land"], 1 - q)],
+                       colors=["#eb6834"], linewidths=0.9)
+            ax.contour(GX, GY, Z_true, levels=[0.5], colors=[INK], linewidths=0.8)
+            c = t["centre_X"]
+            ax.scatter([c[0]], [c[1]], marker="D", s=22, color="#eb6834",
+                       edgecolor="#fcfcfb", linewidth=1.0, zorder=4)
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.grid(False)
+            for sp in ax.spines.values():
+                sp.set_visible(True)
+                sp.set_color(GRID)
+            if i == 0:
+                ax.set_title(f"Round {t['round']}", color=INK)
+        axes[i, 0].set_ylabel(lab, color=INK, rotation=0, ha="right", va="center")
+    cb = fig.colorbar(im, ax=axes, fraction=0.02, pad=0.01)
+    cb.set_label(r"Error landscape $\hat e$")
+    cb.outline.set_visible(False)
+    from matplotlib.lines import Line2D
+    fig.legend([Line2D([], [], color=INK, lw=0.8),
+                Line2D([], [], color="#eb6834", lw=0.9),
+                Line2D([], [], marker="D", color="#eb6834", lw=0, markersize=5)],
+               ["Constructed region", "Detected region (top 30%)", "Detected centre"],
+               loc="upper center", ncol=3, frameon=False, bbox_to_anchor=(0.47, 1.02))
+    _save(fig, out, name)
 
 
 def _round_cmap():
@@ -270,6 +324,8 @@ def main():
     # Seed 9002 is typical of the under-learnt condition (static drift 0.71 per round
     # against 0.16 under random selection; median ratio over seeds about 4).
     fig_exp2_maps(trace("synth2d", "hard", 9002), out, "fig_exp2_maps_synthetic")
+    # Repairable region whose first detection hits it (offset 0.05 in round 1).
+    fig_exp2_rounds(trace("synth2d", "sparse_init", 9000), out, "fig_exp2_rounds")
     fig_exp2_maps(trace("sulfur", "hard", 9002), out, "fig_exp2_maps_pca", pca=True)
     print("figures written to", out)
 
