@@ -85,6 +85,10 @@ PILOT2_ARMS = (
        ("ws_adaptive", "region", "adaptive", "new", 1.0, 0.3, 73)])
 
 
+# Per-round traces for figures, filled only when FIXED["record"] is set (in-process).
+TRACE = []
+
+
 def _idle():
     """Lowest scheduling priority, so that sweeps do not slow the machine."""
     try:
@@ -221,6 +225,13 @@ def run_one(name, region, noise, seed, stage="static"):
                 pick = with_rehearsal(g, n, len(av), rs)
             sel = av[pick]
             select_sec = time.process_time() - ts
+            if f.get("record"):
+                TRACE.append(dict(arm=arm, traj=traj, regime=regime, round=t,
+                                  X_av=X_R[av], U_av=U_R[av], land=land,
+                                  centre_X=X_R[av][int(np.argmax(land))],
+                                  centre_U=U_R[av][int(np.argmax(land))],
+                                  sel_X=X_R[sel], sel_U=U_R[sel], region_fn=region_fn,
+                                  to_U=to_U, U_R=U_R, in_R=in_R, anchor=anchor))
             avail[sel] = False
             chosen.extend(sel.tolist())
             if regime == "acc":                # initial set plus every selection so far
