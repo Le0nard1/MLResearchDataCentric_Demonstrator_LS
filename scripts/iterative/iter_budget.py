@@ -326,15 +326,15 @@ def main():
 
     from joblib import Parallel, delayed
     t0 = time.time()
-    chunk = max(a.workers * 2, 1)
-    for s in range(0, len(jobs), chunk):
-        res = Parallel(n_jobs=a.workers)(delayed(_safe)(j, dict(FIXED), a.stage)
-                                         for j in jobs[s:s + chunk])
-        df = pd.DataFrame([r for o in res for r in o]).reindex(columns=cols)
-        out.parent.mkdir(parents=True, exist_ok=True)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    # Each job is appended as soon as it finishes, so an interruption loses at most
+    # the jobs still running; a restart skips every job already in the file.
+    res = Parallel(n_jobs=a.workers, return_as="generator_unordered")(
+        delayed(_safe)(j, dict(FIXED), a.stage) for j in jobs)
+    for m, rows in enumerate(res, 1):
+        df = pd.DataFrame(rows).reindex(columns=cols)
         df.to_csv(out, mode="a", header=not out.exists(), index=False)
         el = time.time() - t0
-        m = min(s + chunk, len(jobs))
         print(f"{m}/{len(jobs)}  {el/60:.1f} min  ETA {(el/m)*(len(jobs)-m)/60:.1f} min",
               flush=True)
 
