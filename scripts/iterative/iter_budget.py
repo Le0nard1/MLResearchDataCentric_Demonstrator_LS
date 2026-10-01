@@ -52,7 +52,8 @@ from scripts.dataselect.baselines import with_rehearsal
 RES = Path("data/experiment_results/iterative_weakspot_curation")
 
 FIXED = dict(n_data=4500, n_round=200, T=8, iters_initial=400, iters_retrain=200,
-             k_diag=10, q_diag=0.3, n_random=3, complexity=0.5, gamma=0.5)
+             k_diag=10, q_diag=0.3, n_random=3, complexity=0.5, gamma=0.5,
+             kappa=1.5, switch_k=10.0, switch_mid=0.5)
 ARMS = {"ws_tuned": dict(alpha=1.0, q=0.3), "ws_default": dict(alpha=0.2, q=0.15)}
 DATASETS = ["synth2d", "houses", "medical_charges", "diamonds", "sulfur",
             "brazilian_houses", "nyc_taxi"]
@@ -63,7 +64,8 @@ COLS = ["dataset", "region", "noise", "seed", "arm", "traj", "round", "alpha_t",
         "mae", "err_in", "err_out", "n_in_region", "severity", "p_value", "prec",
         "chance", "offset", "drift", "c0", "c1", "error"]
 PILOT_COLS = (COLS[:5] + ["method", "schedule", "regime"] + COLS[5:-1]
-              + ["n_fit", "epochs", "sample_updates", "fit_sec", "select_sec", "error"])
+              + ["size", "n_fit", "epochs", "sample_updates", "fit_sec", "select_sec",
+                 "error"])
 # Pilot (storyline check): fresh seeds, clean labels, two repairable and one
 # persistent condition, the synthetic task and two benchmark datasets.
 PILOT = dict(datasets=["synth2d", "houses", "sulfur"],
@@ -88,6 +90,44 @@ PILOT2_ARMS = (
 # accumulated set as the compute reference, on the first FULL["n_acc"] seeds only.
 FULL = dict(seeds=list(range(8100, 8120)), n_acc=10)
 ACC_REF = ("random_acc", "random", "static", "acc", 0.0, 0.0, 30)
+# Third pilot: retraining on the new points plus a replay of n_replay earlier points
+# (bounded compute, 2x the new-points-only budget), scarcity of the weak region and
+# the initial training state. Conditions are "region:rho:init", e.g.
+# "sparse_all:0.03:short"; random new-points-only is kept as the degradation check.
+PILOT3 = dict(datasets=["synth2d", "houses", "sulfur"], noises=["clean"],
+              regions=["sparse_init:0.25:std", "sparse_all:0.25:std",
+                       "sparse_all:0.1:std", "sparse_all:0.03:std",
+                       "sparse_init:0.25:short", "sparse_all:0.1:short"],
+              seeds=list(range(9100, 9110)), n_replay=200, iters_short=30)
+PILOT4 = dict(datasets=["synth2d", "houses", "sulfur"], noises=["clean"],
+              regions=["sparse_init:0.25:std", "sparse_all:0.1:std"],
+              seeds=list(range(9200, 9210)))
+PILOT4_ARMS = (
+    [("random", "random", "static", "replay", 0.0, 0.0, 20 + r) for r in range(2)]
+    + [("ws_half", "region", "static", "replay", 0.5, 0.3, 82),
+       ("ws_tuned", "region", "static", "replay", 1.0, 0.3, 70),
+       ("ws_half_adaptive", "region", "adaptive", "replay", 0.5, 0.3, 86),
+       ("ws_adaptive", "region", "adaptive", "replay", 1.0, 0.3, 73)]
+    + [(f"ws{'_half' if a < 1 else ''}_{sch}", "region_adapt", sch, "replay", a, 0.3,
+        100 + 10 * j + (a < 1))
+       for j, sch in enumerate(["size_pow05", "size_pow2", "size_switch"])
+       for a in (0.5, 1.0)])
+# Full run of the replay design (pilots 3 and 4 at scale): every task, the scarcity and
+# initial-training conditions of pilot 3, clean labels, fresh seeds; arms of pilot 3
+# plus the six size-based schedules of pilot 4, so all comparisons share one control.
+FULL2 = dict(regions=["sparse_init:0.25:std", "sparse_all:0.25:std",
+                      "sparse_all:0.1:std", "sparse_all:0.03:std",
+                      "sparse_init:0.25:short", "sparse_all:0.1:short"],
+             noises=["clean"], seeds=list(range(8200, 8220)))
+PILOT3_ARMS = (
+    [("random", "random", "static", "replay", 0.0, 0.0, 20 + r) for r in range(2)]
+    + [("random_new", "random", "static", "new", 0.0, 0.0, 29),
+       ("ws_default", "region", "static", "replay", 0.2, 0.15, 81),
+       ("ws_half", "region", "static", "replay", 0.5, 0.3, 82),
+       ("ws_tuned", "region", "static", "replay", 1.0, 0.3, 70),
+       ("ws_dynamic", "region", "dynamic", "replay", 1.0, 0.3, 72),
+       ("ws_adaptive", "region", "adaptive", "replay", 1.0, 0.3, 73),
+       ("ws_half_adaptive", "region", "adaptive", "replay", 0.5, 0.3, 86)])
 
 
 # Per-round traces for figures, filled only when FIXED["record"] is set (in-process).
@@ -127,11 +167,14 @@ def diagnose(U, e, in_reg, anchor, prev_c, rs):
                 prec=float(in_reg[W].mean()), chance=float(in_reg.mean()),
                 offset=float(np.linalg.norm(c - anchor)),
                 drift=float(np.linalg.norm(c - prev_c)) if prev_c is not None else np.nan,
-                c0=float(c[0]), c1=float(c[1]))
+                c0=float(c[0]), c1=float(c[1]),
+                # weakspot size: share of the held-out half whose landscape exceeds
+                # kappa x the median of the landscape fitted on the other half
+                size=float((land_B > FIXED['kappa'] * np.median(land_A)).mean()))
     return diag, land, c
 
 
-def alpha_schedule(schedule, alpha, t, S_t, S_1):
+def alpha_schedule(schedule, alpha, t, S_t, S_1, z_t=None, z_1=None):
     """Guidance fraction of round t (Section 3.4)."""
     if schedule == "static":
         return alpha
@@ -139,6 +182,15 @@ def alpha_schedule(schedule, alpha, t, S_t, S_1):
         return alpha * FIXED["gamma"] ** (t - 1)
     if schedule == "adaptive":                 # scaled by the remaining severity
         return alpha * float(np.clip((S_t - 1.0) / max(S_1 - 1.0, 1e-9), 0.0, 1.0))
+    if schedule.startswith("size"):        # scaled by the remaining weakspot size
+        r = float(np.clip(z_t / max(z_1, 1e-9), 0.0, 1.0)) if z_1 else 0.0
+        if schedule == "size_pow05":         # holds the focus until nearly gone
+            return alpha * r ** 0.5
+        if schedule == "size_pow2":          # releases as soon as it shrinks
+            return alpha * r ** 2
+        if schedule == "size_switch":        # full focus above half the size
+            k, mid = FIXED["switch_k"], FIXED["switch_mid"]
+            return alpha / (1.0 + np.exp(-k * (r - mid)))
     raise ValueError(schedule)
 
 
@@ -161,20 +213,23 @@ PILOT_ARMS = (
 def run_one(name, region, noise, seed, stage="static"):
     f = FIXED
     pilot = stage.startswith(("pilot", "full"))
-    B.FIXED.update(n_data=f["n_data"])
-    X, y, I, R, X_ev, y_ev, region_fn, to_U, _ = B.make(name, region, noise, seed)
+    base_region, rho, init = (region.split(":") + [None, None])[:3]
+    B.FIXED.update(n_data=f["n_data"], rho=float(rho) if rho else 0.25)
+    X, y, I, R, X_ev, y_ev, region_fn, to_U, _ = B.make(name, base_region, noise, seed)
     anchor = _closure(region_fn, "a")
     X_I, y_I, X_R, y_R = X[I], y[I], X[R], y[R]
     U_R = to_U(X_R)
     in_ev, in_R = region_fn(X_ev), region_fn(X_R)
     nR, n = len(R), f["n_round"]
 
-    m0 = build_model("mlp", complexity=f["complexity"], iterations=f["iters_initial"],
+    iters0 = PILOT3["iters_short"] if init == "short" else f["iters_initial"]
+    m0 = build_model("mlp", complexity=f["complexity"], iterations=iters0,
                      warm_start=True, early_stopping=True)
     m0.fit(X_I, y_I)
     # Irreducible loss for the RHO-LOSS combinations: cross-fitted once on the reserve,
     # independent of the model being trained (Paper A, Section 3).
-    il = B.irreducible_loss(X_I, y_I, X_R, y_R, seed) if pilot else None
+    needs_il = pilot and not stage.startswith(("pilot3", "pilot4", "full2"))
+    il = B.irreducible_loss(X_I, y_I, X_R, y_R, seed) if needs_il else None
 
     def score(m):
         e = np.abs(y_ev - m.predict(X_ev))
@@ -205,7 +260,7 @@ def run_one(name, region, noise, seed, stage="static"):
         m = copy.deepcopy(m0)
         avail = np.ones(nR, bool)
         chosen = []
-        prev_c, S_1 = None, None
+        prev_c, S_1, z_1 = None, None, None
         tag = dict(method=method, schedule=schedule, regime=regime) if pilot else {}
         rows.append({**base, "arm": arm, "traj": traj, "round": 0, **tag, **s0})
         for t in range(1, f["T"] + 1):
@@ -214,13 +269,21 @@ def run_one(name, region, noise, seed, stage="static"):
             e = np.abs(y_R[av] - m.predict(X_R[av]))
             diag, land, prev_c = diagnose(U_R[av], e, in_R[av], anchor, prev_c, rs)
             S_1 = diag["severity"] if S_1 is None else S_1
-            a_t = alpha_schedule(schedule, alpha, t, diag["severity"], S_1)
+            z_1 = diag["size"] if t == 1 else z_1
+            a_t = alpha_schedule(schedule, alpha, t, diag["severity"], S_1,
+                                 diag["size"], z_1)
             kk = int(round(a_t * n))
             if method == "random" or kk == 0:
                 pick = rs.choice(len(av), n, replace=False)
             else:
                 members = np.flatnonzero(land >= np.quantile(land, 1 - q))
-                if method == "region":
+                if method == "region_adapt":    # elevated area, capped at the top q
+                    elev = np.flatnonzero(land > f["kappa"] * np.median(land))
+                    if len(elev) < len(members):
+                        members = elev
+                if len(members) == 0:
+                    members = np.arange(len(av))
+                if method in ("region", "region_adapt"):
                     g = rs.choice(members, min(kk, len(members)), replace=False)
                 elif method == "rho_filter":       # reducible loss within the region
                     red = e - il[av]
@@ -243,6 +306,14 @@ def run_one(name, region, noise, seed, stage="static"):
                 c = np.asarray(chosen)
                 cost = continue_training(m, np.vstack([X_I, X_R[c]]),
                                          np.concatenate([y_I, y_R[c]]))
+            elif regime == "replay":           # new points + replay of earlier data
+                prev = np.asarray(chosen[:-len(sel)], dtype=int)
+                X_old = np.vstack([X_I, X_R[prev]]) if len(prev) else X_I
+                y_old = np.concatenate([y_I, y_R[prev]]) if len(prev) else y_I
+                k = rs.choice(len(X_old), min(PILOT3["n_replay"], len(X_old)),
+                              replace=False)
+                cost = continue_training(m, np.vstack([X_R[sel], X_old[k]]),
+                                         np.concatenate([y_R[sel], y_old[k]]))
             else:                              # this round's selection alone
                 cost = continue_training(m, X_R[sel], y_R[sel])
             rows.append({**base, "arm": arm, "traj": traj, "round": t, **tag,
@@ -254,6 +325,13 @@ def run_one(name, region, noise, seed, stage="static"):
 
     if pilot:
         arms = PILOT2_ARMS if stage.startswith(("pilot2", "full")) else PILOT_ARMS
+        if stage.startswith("pilot3"):
+            arms = PILOT3_ARMS
+        if stage.startswith("pilot4"):
+            arms = PILOT4_ARMS
+        if stage.startswith("full2"):
+            arms = list(PILOT3_ARMS) + list(a for a in PILOT4_ARMS
+                                       if a[2].startswith("size"))
         if stage.startswith("full") and seed < FULL["seeds"][0] + FULL["n_acc"]:
             arms = arms + [ACC_REF]
         for arm, method, schedule, regime, alpha, q, salt in arms:
@@ -280,6 +358,8 @@ def _safe(args, fixed, stage="static"):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--stage", choices=["smoke", "static", "pilot", "pilot_smoke", "pilot2", "pilot2_smoke",
+                             "pilot3", "pilot3_smoke", "pilot4", "pilot4_smoke",
+                             "full2", "full2_smoke",
                              "full", "full_smoke"], required=True)
     ap.add_argument("--workers", type=int, default=19)
     ap.add_argument("--datasets", nargs="+", default=DATASETS, choices=DATASETS)
@@ -312,7 +392,29 @@ def main():
         for name in PILOT["datasets"]:
             if name != "synth2d":
                 _openml(name)
-    if a.stage.endswith("pilot_smoke") or a.stage == "pilot2_smoke":
+    if a.stage.startswith("pilot3"):
+        jobs = [(d, r, nz, s) for s in PILOT3["seeds"] for d in PILOT3["datasets"]
+                for r in PILOT3["regions"] for nz in PILOT3["noises"]]
+    if a.stage.startswith("full2"):
+        out = RES / f"iter_{a.stage}.csv"
+        jobs = [(d, r, nz, s) for s in FULL2["seeds"] for d in DATASETS
+                for r in FULL2["regions"] for nz in FULL2["noises"]]
+        for name in DATASETS:
+            if name != "synth2d":
+                _openml(name)
+    if a.stage == "full2_smoke":
+        jobs = [("nyc_taxi", "sparse_all:0.03:std", "clean", 8200)]
+        out.unlink(missing_ok=True)
+    if a.stage.startswith("pilot4"):
+        jobs = [(d, r, nz, s) for s in PILOT4["seeds"] for d in PILOT4["datasets"]
+                for r in PILOT4["regions"] for nz in PILOT4["noises"]]
+    if a.stage == "pilot4_smoke":
+        jobs = [("synth2d", "sparse_init:0.25:std", "clean", 9200)]
+        out.unlink(missing_ok=True)
+    elif a.stage == "pilot3_smoke":
+        jobs = [("sulfur", "sparse_all:0.03:short", "clean", 9100)]
+        out.unlink(missing_ok=True)
+    elif a.stage.endswith("pilot_smoke") or a.stage == "pilot2_smoke":
         jobs = [("sulfur", "hard", "clean", 9000)]
         out.unlink(missing_ok=True)
     elif a.stage == "smoke":
