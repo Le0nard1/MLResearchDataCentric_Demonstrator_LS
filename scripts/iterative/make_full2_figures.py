@@ -107,6 +107,42 @@ def fig_dynamics(d, out):
     save(fig, out, "fig_b_dynamics")
 
 
+def fig_hybrid(d, out):
+    """Focus + coverage against its components, per round (replay regime)."""
+    extra = []
+    for name, arms in [("iter_full2_kc.csv", ["kcenter"]),
+                       ("iter_full2_abl.csv", ["hybrid_size_pow2_kc"]),
+                       ("iter_full2_ctl.csv", ["kcenter_half_uniform"])]:
+        x = pd.read_csv(RES / name)
+        extra.append(x[x.arm.isin(arms)])
+    dd = pd.concat([d[d.arm.isin(["random", "ws_half"])]] + extra)
+    G = gains(dd, "mae")
+    col = {"ws_half": COL["ws_half"], "kcenter": "#eda100", "kcenter_half_uniform": "#e87ba4",
+           "hybrid_size_pow2_kc": "#4a3aa7"}
+    lab = {"ws_half": r"Static focus, $\alpha=0.5$", "kcenter": "k-center",
+           "kcenter_half_uniform": "k-center half + uniform half",
+           "hybrid_size_pow2_kc": "Focus + coverage"}
+    panels = [("Synthetic, repairable weakspot", (G.dataset == "synth2d") & (G.region == REP)),
+              ("Synthetic, scarce weakspot ($\\rho=0.1$)", (G.dataset == "synth2d") & (G.region == S10)),
+              ("Real datasets (all conditions)", G.dataset != "synth2d")]
+    fig, axes = plt.subplots(1, 3, figsize=(7.0, 2.2))
+    for ax, (title, m) in zip(axes, panels):
+        ax.axhline(0, color=INK2, lw=0.9)
+        for arm in ["ws_half", "kcenter", "kcenter_half_uniform", "hybrid_size_pow2_kc"]:
+            x = G[m & (G.arm == arm)].groupby("round").G
+            mu, h = x.mean(), x.apply(lambda s: _ci(s)[1])
+            ax.plot(mu.index, mu.values, color=col[arm], marker="o", markersize=3, label=lab[arm])
+            ax.fill_between(mu.index, mu - h, mu + h, color=col[arm], alpha=0.13, lw=0)
+        ax.set_title(title, color=INK)
+        ax.set_xticks(range(1, 9))
+        ax.set_xlabel("Round $t$")
+    axes[0].set_ylabel(r"Error reduction $G_t$ [%]")
+    h, l = axes[0].get_legend_handles_labels()
+    fig.legend(h, l, loc="upper center", ncol=4, frameon=False, bbox_to_anchor=(0.5, 1.1))
+    fig.tight_layout()
+    save(fig, out, "fig_b_hybrid")
+
+
 def fig_maps(out, seed=8203):
     IB.TRACE.clear()
     IB.FIXED.update(record=True)
@@ -160,13 +196,17 @@ def fig_maps(out, seed=8203):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
+    ap.add_argument("--skip-maps", action="store_true", help="skip the traced map figure")
     a = ap.parse_args()
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     d = pd.read_csv(RES / "iter_full2.csv")
     fig_rounds(d, out)
     fig_dynamics(d, out)
-    fig_maps(out)
+    if (RES / "iter_full2_ctl.csv").exists():
+        fig_hybrid(d, out)
+    if not a.skip_maps:
+        fig_maps(out)
     print("figures written to", out)
 
 

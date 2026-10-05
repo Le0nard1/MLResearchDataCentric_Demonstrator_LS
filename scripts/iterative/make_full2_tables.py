@@ -25,8 +25,20 @@ ARMS = [("ws_default", r"Static, $\alpha=0.2$"), ("ws_half", r"Static, $\alpha=0
         ("ws_size_switch", r"Size-adaptive (switch), $\alpha=1$"),
         ("ws_half_size_pow2_fixedreg", r"Size-adaptive $\alpha$ ($r^{2}$), fixed region"),
         ("ws_half_adaptreg", r"Static $\alpha=0.5$, adaptive region"),
+        ("hybrid_fixedreg", r"Focus + coverage, fixed region"),
         ("kcenter", r"Iterated k-center (coverage)"),
+        ("kcenter_half_uniform", r"k-center half + uniform half"),
         ("hybrid_size_pow2_kc", r"Focus + coverage")]
+# Compact main-text table; the full list goes to the appendix.
+MAIN = [("ws_half", r"Static focus, $\alpha=0.5$"), ("ws_dynamic", r"Dynamic, $\alpha=1$"),
+        ("ws_half_adaptive", r"Severity-adaptive, $\alpha=0.5$"),
+        ("ws_half_size_pow2", r"Size-adaptive ($r^{2}$), $\alpha=0.5$"),
+        ("ws_half_adaptreg", r"Static focus, elevated area"),
+        ("kcenter", r"k-center (coverage)"),
+        ("kcenter_half_uniform", r"k-center half + uniform half"),
+        ("hybrid_size_pow2_kc", r"Focus + coverage")]
+PAIRS = [("hybrid_size_pow2_kc", "kcenter_half_uniform"), ("hybrid_size_pow2_kc", "kcenter"),
+         ("hybrid_size_pow2_kc", "hybrid_fixedreg"), ("kcenter_half_uniform", "kcenter")]
 COND = [("sparse_init:0.25:std", "Repairable"), ("sparse_all:0.25:std", r"Scarce, $\rho=0.25$"),
         ("sparse_all:0.1:std", r"Scarce, $\rho=0.1$"), ("sparse_all:0.03:std", r"Scarce, $\rho=0.03$"),
         ("sparse_init:0.25:short", "Repairable, short init."),
@@ -80,14 +92,33 @@ def main():
         x = pd.read_csv(abl)
         d = pd.concat([d, x[x.arm.isin(["ws_half_size_pow2_fixedreg", "ws_half_adaptreg",
                                         "hybrid_size_pow2_kc"])]])
+    ctl = IB.RES / "iter_full2_ctl.csv"          # controls for focus + coverage
+    if ctl.exists():
+        d = pd.concat([d, pd.read_csv(ctl)])
     g = per_run_gain(d)
+    have = set(g.arm)
+    arms = [(a, l) for a, l in ARMS if a in have]
+    main_arms = [(a, l) for a, l in MAIN if a in have]
     cells = {(a, ds): g[(g.arm == a) & (g.dataset == ds)].G.values
-             for a, _ in ARMS for ds, _ in DS}
-    print("% Table: schedules x datasets")
+             for a, _ in arms for ds, _ in DS}
+    print("% Main table: strategies x datasets")
     print(" & ".join(["Strategy"] + [l for _, l in DS]) + r" \\")
-    print(table(cells, [a for a, _ in ARMS], [ds for ds, _ in DS], dict(ARMS), dict(DS)))
+    print(table(cells, [a for a, _ in main_arms], [ds for ds, _ in DS], dict(main_arms), dict(DS)))
+    print("\n% Appendix table: all strategies x datasets")
+    print(table(cells, [a for a, _ in arms], [ds for ds, _ in DS], dict(arms), dict(DS)))
+    # paired comparisons between strategies (pooled and per dataset, Holm over datasets)
+    run = g.set_index(["dataset", "region", "seed", "arm"]).G.unstack("arm")
+    for x, y in PAIRS:
+        if x not in run or y not in run:
+            continue
+        dlt = (run[x] - run[y]).dropna()
+        per = [(ds, dlt.xs(ds, level=0)) for ds, _ in DS]
+        padj = holm([wilcoxon(v).pvalue for _, v in per])
+        print(f"\n% {x} minus {y}: pooled {dlt.mean():+.2f} (p={wilcoxon(dlt).pvalue:.0e})")
+        print("%   " + ", ".join(f"{ds}: {v.mean():+.2f}{'*' if p < 0.01 else ''}"
+                                for (ds, v), p in zip(per, padj)))
     g["kind"] = np.where(g.dataset == "synth2d", "syn", "real")
-    sel = ["ws_half", "ws_tuned", "ws_half_size_switch", "ws_half_size_pow2"]
+    sel = ["ws_half", "ws_tuned", "ws_half_adaptreg", "hybrid_size_pow2_kc"]
     cells2 = {}
     for a in sel:
         for reg, _ in COND:
