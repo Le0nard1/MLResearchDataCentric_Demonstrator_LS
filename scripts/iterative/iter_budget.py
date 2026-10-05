@@ -64,7 +64,8 @@ COLS = ["dataset", "region", "noise", "seed", "arm", "traj", "round", "alpha_t",
         "mae", "err_in", "err_out", "n_in_region", "severity", "p_value", "prec",
         "chance", "offset", "drift", "c0", "c1", "error"]
 PILOT_COLS = (COLS[:5] + ["method", "schedule", "regime"] + COLS[5:-1]
-              + ["size", "n_fit", "epochs", "sample_updates", "fit_sec", "select_sec",
+              + ["size", "det_gain", "det_share", "n_fit", "epochs", "sample_updates",
+                 "fit_sec", "select_sec",
                  "error"])
 # Pilot (storyline check): fresh seeds, clean labels, two repairable and one
 # persistent condition, the synthetic task and two benchmark datasets.
@@ -254,6 +255,9 @@ def run_one(name, region, noise, seed, stage="static"):
     s0 = score(m0)
     rows = []
 
+    U_ev = to_U(X_ev)
+    RPRED = {}                                 # control predictions per round
+
     def loop(arm, traj, alpha, q, salt, method="region", schedule="static",
              regime="acc"):
         rs = np.random.RandomState(seed * 1000 + salt)
@@ -281,20 +285,34 @@ def run_one(name, region, noise, seed, stage="static"):
                 pick = rs.choice(len(av), n, replace=False)
             else:
                 members = np.flatnonzero(land >= np.quantile(land, 1 - q))
-                if method == "region_adapt":    # elevated area, capped at the top q
+                if method in ("region_adapt", "region_adapt_kc"):  # elevated area, capped
                     elev = np.flatnonzero(land > f["kappa"] * np.median(land))
                     if len(elev) < len(members):
                         members = elev
                 if len(members) == 0:
                     members = np.arange(len(av))
-                if method in ("region", "region_adapt"):
+                if method in ("region", "region_adapt", "region_adapt_kc"):
                     g = rs.choice(members, min(kk, len(members)), replace=False)
                 elif method == "rho_filter":       # reducible loss within the region
                     red = e - il[av]
                     g = members[np.argsort(red[members])[::-1][:min(kk, len(members))]]
                 elif method == "rho_landscape":    # reducible loss x error landscape
                     g = np.argsort(np.maximum(e - il[av], 0) * land)[::-1][:kk]
-                pick = with_rehearsal(g, n, len(av), rs)
+                if method == "region_adapt_kc":   # remainder covers the input space
+                    rest = np.setdiff1d(np.arange(len(av)), g)
+                    used = np.vstack([to_U(X_I), U_R[np.asarray(chosen, dtype=int)]]) \
+                        if chosen else to_U(X_I)
+                    kc = pick_kcenter(U_R[av][rest], np.vstack([used, U_R[av][g]]),
+                                      n - len(g))
+                    pick = np.concatenate([g, rest[kc]]).astype(int)
+                else:
+                    pick = with_rehearsal(g, n, len(av), rs)
+            # Detected region on the test set (for the error reduction inside it)
+            if stage.startswith("full2_abl"):
+                dk, nk = cKDTree(U_R[av]).query(U_ev, k=f["k_diag"])
+                wk = 1.0 / np.maximum(dk, 1e-12)
+                land_ev = (wk * land[nk]).sum(1) / wk.sum(1)
+                det_mask = land_ev >= np.quantile(land, 1 - f["q_diag"])
             sel = av[pick]
             select_sec = time.process_time() - ts
             if f.get("record"):
@@ -320,8 +338,19 @@ def run_one(name, region, noise, seed, stage="static"):
                                          np.concatenate([y_R[sel], y_old[k]]))
             else:                              # this round's selection alone
                 cost = continue_training(m, X_R[sel], y_R[sel])
+            det = {}
+            if stage.startswith("full2_abl"):
+                pred = m.predict(X_ev)
+                if arm == "random":
+                    RPRED[t] = pred
+                elif t in RPRED:
+                    e_ws = np.abs(y_ev - pred)[det_mask]
+                    e_rn = np.abs(y_ev - RPRED[t])[det_mask]
+                    det = dict(det_gain=float(100 * (e_rn.mean() - e_ws.mean())
+                                              / e_rn.mean()),
+                               det_share=float(det_mask.mean()))
             rows.append({**base, "arm": arm, "traj": traj, "round": t, **tag,
-                         "alpha_t": a_t, **score(m),
+                         "alpha_t": a_t, **score(m), **det,
                          "n_in_region": int(in_R[sel].sum()), **diag,
                          **(dict(n_fit=cost[0], epochs=cost[1],
                                  sample_updates=cost[0] * cost[1], fit_sec=cost[2],
@@ -336,6 +365,17 @@ def run_one(name, region, noise, seed, stage="static"):
         if stage.startswith("full2"):
             arms = list(PILOT3_ARMS) + list(a for a in PILOT4_ARMS
                                        if a[2].startswith("size"))
+        if stage.startswith("full2_abl"):    # ablation + hybrid; pairs with full2
+            arms = [("random", "random", "static", "replay", 0.0, 0.0, 20),
+                    ("ws_half", "region", "static", "replay", 0.5, 0.3, 82),
+                    ("ws_half_size_pow2", "region_adapt", "size_pow2", "replay", 0.5,
+                     0.3, 111),
+                    ("ws_half_size_pow2_fixedreg", "region", "size_pow2", "replay",
+                     0.5, 0.3, 130),
+                    ("ws_half_adaptreg", "region_adapt", "static", "replay", 0.5, 0.3,
+                     131),
+                    ("hybrid_size_pow2_kc", "region_adapt_kc", "size_pow2", "replay",
+                     0.5, 0.3, 132)]
         if stage.startswith("full2_kc"):     # baseline only; pairs with iter_full2.csv
             arms = [("kcenter", "kcenter", "static", "replay", 1.0, 0.0, 90)]
         if stage.startswith("full") and seed < FULL["seeds"][0] + FULL["n_acc"]:
@@ -366,6 +406,7 @@ def main():
     ap.add_argument("--stage", choices=["smoke", "static", "pilot", "pilot_smoke", "pilot2", "pilot2_smoke",
                              "pilot3", "pilot3_smoke", "pilot4", "pilot4_smoke",
                              "full2", "full2_smoke", "full2_kc", "full2_kc_smoke",
+                             "full2_abl", "full2_abl_smoke",
                              "full", "full_smoke"], required=True)
     ap.add_argument("--workers", type=int, default=19)
     ap.add_argument("--datasets", nargs="+", default=DATASETS, choices=DATASETS)
@@ -408,7 +449,7 @@ def main():
         for name in DATASETS:
             if name != "synth2d":
                 _openml(name)
-    if a.stage in ("full2_smoke", "full2_kc_smoke"):
+    if a.stage in ("full2_smoke", "full2_kc_smoke", "full2_abl_smoke"):
         jobs = [("nyc_taxi", "sparse_all:0.03:std", "clean", 8200)]
         out.unlink(missing_ok=True)
     if a.stage.startswith("pilot4"):
