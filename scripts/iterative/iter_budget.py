@@ -47,7 +47,7 @@ from scipy.stats import mannwhitneyu
 from scripts.weakspot.models import build_model
 from scripts.dataselect import budget_v2 as B
 from scripts.dataselect.budget import _openml, landscape
-from scripts.dataselect.baselines import with_rehearsal
+from scripts.dataselect.baselines import pick_kcenter, with_rehearsal
 
 RES = Path("data/experiment_results/iterative_weakspot_curation")
 
@@ -273,7 +273,11 @@ def run_one(name, region, noise, seed, stage="static"):
             a_t = alpha_schedule(schedule, alpha, t, diag["severity"], S_1,
                                  diag["size"], z_1)
             kk = int(round(a_t * n))
-            if method == "random" or kk == 0:
+            if method == "kcenter":
+                used = np.vstack([to_U(X_I), U_R[np.asarray(chosen, dtype=int)]]) \
+                    if chosen else to_U(X_I)
+                pick = pick_kcenter(U_R[av], used, n)
+            elif method == "random" or kk == 0:
                 pick = rs.choice(len(av), n, replace=False)
             else:
                 members = np.flatnonzero(land >= np.quantile(land, 1 - q))
@@ -332,6 +336,8 @@ def run_one(name, region, noise, seed, stage="static"):
         if stage.startswith("full2"):
             arms = list(PILOT3_ARMS) + list(a for a in PILOT4_ARMS
                                        if a[2].startswith("size"))
+        if stage.startswith("full2_kc"):     # baseline only; pairs with iter_full2.csv
+            arms = [("kcenter", "kcenter", "static", "replay", 1.0, 0.0, 90)]
         if stage.startswith("full") and seed < FULL["seeds"][0] + FULL["n_acc"]:
             arms = arms + [ACC_REF]
         for arm, method, schedule, regime, alpha, q, salt in arms:
@@ -359,7 +365,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--stage", choices=["smoke", "static", "pilot", "pilot_smoke", "pilot2", "pilot2_smoke",
                              "pilot3", "pilot3_smoke", "pilot4", "pilot4_smoke",
-                             "full2", "full2_smoke",
+                             "full2", "full2_smoke", "full2_kc", "full2_kc_smoke",
                              "full", "full_smoke"], required=True)
     ap.add_argument("--workers", type=int, default=19)
     ap.add_argument("--datasets", nargs="+", default=DATASETS, choices=DATASETS)
@@ -402,7 +408,7 @@ def main():
         for name in DATASETS:
             if name != "synth2d":
                 _openml(name)
-    if a.stage == "full2_smoke":
+    if a.stage in ("full2_smoke", "full2_kc_smoke"):
         jobs = [("nyc_taxi", "sparse_all:0.03:std", "clean", 8200)]
         out.unlink(missing_ok=True)
     if a.stage.startswith("pilot4"):
