@@ -22,7 +22,8 @@ ARMS = [("ws_default", r"Static, $\alpha=0.2$"), ("ws_half", r"Static, $\alpha=0
         ("ws_half_size_pow05", r"Size-adaptive (power $0.5$), $\alpha=0.5$"),
         ("ws_half_size_pow2", r"Size-adaptive (power $2$), $\alpha=0.5$"),
         ("ws_half_size_switch", r"Size-adaptive (switch), $\alpha=0.5$"),
-        ("ws_size_switch", r"Size-adaptive (switch), $\alpha=1$")]
+        ("ws_size_switch", r"Size-adaptive (switch), $\alpha=1$"),
+        ("kcenter", r"Iterated k-center (coverage)")]
 COND = [("sparse_init:0.25:std", "Repairable"), ("sparse_all:0.25:std", r"Scarce, $\rho=0.25$"),
         ("sparse_all:0.1:std", r"Scarce, $\rho=0.1$"), ("sparse_all:0.03:std", r"Scarce, $\rho=0.03$"),
         ("sparse_init:0.25:short", "Repairable, short init."),
@@ -68,6 +69,9 @@ def table(cells, rows, cols, row_lab, col_lab):
 
 def main():
     d = pd.read_csv(IB.RES / "iter_full2.csv")
+    kc = IB.RES / "iter_full2_kc.csv"           # k-center baseline, paired with full2
+    if kc.exists():
+        d = pd.concat([d, pd.read_csv(kc)])
     g = per_run_gain(d)
     cells = {(a, ds): g[(g.arm == a) & (g.dataset == ds)].G.values
              for a, _ in ARMS for ds, _ in DS}
