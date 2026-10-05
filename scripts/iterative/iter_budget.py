@@ -277,7 +277,12 @@ def run_one(name, region, noise, seed, stage="static"):
             a_t = alpha_schedule(schedule, alpha, t, diag["severity"], S_1,
                                  diag["size"], z_1)
             kk = int(round(a_t * n))
-            if method == "kcenter":
+            if method == "kcenter_part":       # k-center share + uniform rest
+                used = np.vstack([to_U(X_I), U_R[np.asarray(chosen, dtype=int)]]) \
+                    if chosen else to_U(X_I)
+                g = pick_kcenter(U_R[av], used, kk)
+                pick = with_rehearsal(g, n, len(av), rs)
+            elif method == "kcenter":
                 used = np.vstack([to_U(X_I), U_R[np.asarray(chosen, dtype=int)]]) \
                     if chosen else to_U(X_I)
                 pick = pick_kcenter(U_R[av], used, n)
@@ -291,14 +296,14 @@ def run_one(name, region, noise, seed, stage="static"):
                         members = elev
                 if len(members) == 0:
                     members = np.arange(len(av))
-                if method in ("region", "region_adapt", "region_adapt_kc"):
+                if method in ("region", "region_adapt", "region_adapt_kc", "region_kc"):
                     g = rs.choice(members, min(kk, len(members)), replace=False)
                 elif method == "rho_filter":       # reducible loss within the region
                     red = e - il[av]
                     g = members[np.argsort(red[members])[::-1][:min(kk, len(members))]]
                 elif method == "rho_landscape":    # reducible loss x error landscape
                     g = np.argsort(np.maximum(e - il[av], 0) * land)[::-1][:kk]
-                if method == "region_adapt_kc":   # remainder covers the input space
+                if method in ("region_adapt_kc", "region_kc"):  # rest covers the space
                     rest = np.setdiff1d(np.arange(len(av)), g)
                     used = np.vstack([to_U(X_I), U_R[np.asarray(chosen, dtype=int)]]) \
                         if chosen else to_U(X_I)
@@ -376,6 +381,10 @@ def run_one(name, region, noise, seed, stage="static"):
                      131),
                     ("hybrid_size_pow2_kc", "region_adapt_kc", "size_pow2", "replay",
                      0.5, 0.3, 132)]
+        if stage.startswith("full2_ctl"):    # controls for focus + coverage
+            arms = [("kcenter_half_uniform", "kcenter_part", "static", "replay", 0.5, 0.0,
+                     140),
+                    ("hybrid_fixedreg", "region_kc", "size_pow2", "replay", 0.5, 0.3, 141)]
         if stage.startswith("full2_kc"):     # baseline only; pairs with iter_full2.csv
             arms = [("kcenter", "kcenter", "static", "replay", 1.0, 0.0, 90)]
         if stage.startswith("full") and seed < FULL["seeds"][0] + FULL["n_acc"]:
@@ -406,7 +415,7 @@ def main():
     ap.add_argument("--stage", choices=["smoke", "static", "pilot", "pilot_smoke", "pilot2", "pilot2_smoke",
                              "pilot3", "pilot3_smoke", "pilot4", "pilot4_smoke",
                              "full2", "full2_smoke", "full2_kc", "full2_kc_smoke",
-                             "full2_abl", "full2_abl_smoke",
+                             "full2_abl", "full2_abl_smoke", "full2_ctl", "full2_ctl_smoke",
                              "full", "full_smoke"], required=True)
     ap.add_argument("--workers", type=int, default=19)
     ap.add_argument("--datasets", nargs="+", default=DATASETS, choices=DATASETS)
@@ -449,7 +458,7 @@ def main():
         for name in DATASETS:
             if name != "synth2d":
                 _openml(name)
-    if a.stage in ("full2_smoke", "full2_kc_smoke", "full2_abl_smoke"):
+    if a.stage in ("full2_smoke", "full2_kc_smoke", "full2_abl_smoke", "full2_ctl_smoke"):
         jobs = [("nyc_taxi", "sparse_all:0.03:std", "clean", 8200)]
         out.unlink(missing_ok=True)
     if a.stage.startswith("pilot4"):
