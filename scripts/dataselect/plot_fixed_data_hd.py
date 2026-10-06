@@ -58,25 +58,40 @@ PANELS = [("synth2", "$d=2$"), ("synth5", "$d=5$"), ("synth10", "$d=10$"),
           ("synth20", "$d=20$"), ("cal8", "California, 8 features")]
 
 
+# Drawn at the printed width (6.75 in), so these are the fonts in print.
+PAPER_RC = {"font.size": 8, "axes.titlesize": 8.5, "axes.labelsize": 8,
+            "xtick.labelsize": 7, "ytick.labelsize": 7, "legend.fontsize": 7}
+
+
 def fig(tab, out, noise="gauss"):
-    fig, axes = plt.subplots(1, len(PANELS), figsize=(19, 4.3), constrained_layout=True)
+    with plt.rc_context(PAPER_RC):
+        _fig(tab, out, noise)
+
+
+def _fig(tab, out, noise):
+    fig, grid = plt.subplots(2, 3, figsize=(6.75, 4.6), constrained_layout=True)
+    axes = grid.ravel()[:len(PANELS)]
     for ax, (task, title) in zip(axes, PANELS):
         nz = "real" if task == "cal8" else noise
         g = tab[(tab.task == task) & (tab.noise == nz)]
         for arm, (lab, col, mk) in STYLE.items():
             a = g[(g.arm == arm) & (g.outside > -60)]
             if len(a):
-                ax.scatter(-a.outside, a.inside, c=col, marker=mk, s=30 if mk != "*" else 70,
+                ax.scatter(-a.outside, a.inside, c=col, marker=mk, s=14 if mk != "*" else 40,
                            label=lab, alpha=0.9)
         ax.axhline(0, c="k", lw=0.6)
         ax.axvline(0, c="k", lw=0.6)
         ax.set_title(title)
         ax.set_xlabel("error added outside (%)")
         ax.grid(alpha=0.3)
-    axes[0].set_ylabel("weakspot error removed (%)")
+    for ax in (axes[0], axes[3]):
+        ax.set_ylabel("weakspot error removed (%)")
     h, l = axes[0].get_legend_handles_labels()
-    fig.legend(h, l, loc="outside lower center", ncol=len(l), fontsize=9, frameon=False)
-    fig.savefig(out, dpi=200)
+    leg_ax = grid.ravel()[-1]
+    leg_ax.axis("off")
+    leg_ax.legend(h, l, loc="center", frameon=False)
+    fig.savefig(out, dpi=300)
+    fig.savefig(Path(out).with_suffix(".pdf"))
     plt.close(fig)
 
 

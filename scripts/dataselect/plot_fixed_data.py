@@ -25,6 +25,16 @@ import matplotlib.pyplot as plt
 from scripts.dataselect.plot_baselines import holm
 
 RES = Path("data/experiment_results/data_selective_training")
+# Paper figures are drawn at their printed width (AISTATS text width 6.75 in), so the
+# fonts below are the fonts that appear in print; saved as vector PDF and as PNG.
+PAPER_W = 6.75
+PAPER_RC = {"font.size": 8, "axes.titlesize": 8.5, "axes.labelsize": 8,
+            "xtick.labelsize": 7, "ytick.labelsize": 7, "legend.fontsize": 7}
+
+
+def _save_paper(fig, out):
+    fig.savefig(out, dpi=300)
+    fig.savefig(Path(out).with_suffix(".pdf"))
 ARMS = ["weakspot", "gated", "loss", "jtt", "density", "smoothed_loss", "random_centre",
         "oracle"]
 R_CAL = 0.2
@@ -164,7 +174,12 @@ def fig_controls(out):
     grid, reported seeds, reference condition: is the gain the location, or the reshaping?"""
     fr = pd.read_csv(RES / "fixed_data_frontier.csv")
     fr = fr[fr.arm != "ERROR"]
-    fig, axes = plt.subplots(1, 2, figsize=(10.5, 3.9), constrained_layout=True)
+    with plt.rc_context(PAPER_RC):
+        _fig_controls(fr, out)
+
+
+def _fig_controls(fr, out):
+    fig, axes = plt.subplots(1, 2, figsize=(PAPER_W, 2.1), constrained_layout=True)
     for ax, task, title in zip(axes, ["synthetic", "california"],
                                ["(a) Synthetic, hard region", "(b) California housing"]):
         g = fr[fr.task == task].groupby(["arm", "hp"])[["err_in", "mae", "ess"]].mean()
@@ -175,14 +190,16 @@ def fig_controls(out):
             a = g.loc[arm]
             ok = a[a.mae <= u.mae * 1.6]
             ax.scatter(100 * (1 - ok.ess), 100 * (1 - ok.err_in / u.err_in), c=col, marker=mk,
-                       s=26, label=lab, alpha=0.85)
+                       s=14, label=lab, alpha=0.85)
         ax.axhline(0, c="k", lw=0.6)
         ax.set_xlabel("intervention strength, $1-$ESS (%)")
         ax.set_title(title)
         ax.grid(alpha=0.3)
-    axes[0].set_ylabel("weakspot error removed vs uniform (%)")
-    axes[0].legend(fontsize=7, loc="upper left")
-    fig.savefig(out, dpi=200)
+    axes[0].set_ylabel("weakspot error removed (%)")
+    h, l = axes[0].get_legend_handles_labels()
+    fig.legend(h, l, loc="outside upper center", ncol=len(l), frameon=False,
+               handletextpad=0.1, columnspacing=0.9)
+    _save_paper(fig, out)
     plt.close(fig)
 
 
@@ -219,16 +236,16 @@ def _frontier_panel(ax, fr, task, title, legend=False):
         a = g.loc[arm]
         ok = a[a.err_out <= u.err_out * 1.6]       # drop collapsed settings off-scale
         ax.scatter(100 * (ok.err_out / u.err_out - 1), 100 * (ok.err_in / u.err_in - 1),
-                   c=col, marker=mk, s=22, label=lab, alpha=0.85)
+                   c=col, marker=mk, s=14, label=lab, alpha=0.85)
     ax.axhline(0, c="k", lw=0.6)
     ax.axvline(0, c="k", lw=0.6)
-    ax.scatter([0], [0], c="k", marker="*", s=100, zorder=5, label="Uniform")
-    ax.set_xlabel("outside the weakspot (%)")
-    ax.set_ylabel("inside the weakspot (%)")
+    ax.scatter([0], [0], c="k", marker="*", s=60, zorder=5, label="Unguided unweighted baseline")
+    ax.set_xlabel("error change outside the weakspot (%)")
+    ax.set_ylabel("error change inside the weakspot (%)")
     ax.set_title(title)
     ax.grid(alpha=0.3)
     if legend:
-        ax.legend(fontsize=7, loc="center right")
+        ax.legend(loc="center right", handletextpad=0.2, borderpad=0.3, labelspacing=0.25)
 
 
 def fig_combined(maps, out):
@@ -236,10 +253,18 @@ def fig_combined(maps, out):
     (initial error; weakspot-weighted minus uniform continuation)."""
     fr = pd.read_csv(RES / "fixed_data_frontier.csv")
     fr = fr[fr.arm != "ERROR"]
-    fig, ax = plt.subplots(1, 4, figsize=(17, 3.9), constrained_layout=True,
-                           gridspec_kw=dict(width_ratios=[1, 1, 1.05, 1.05]))
-    _frontier_panel(ax[0], fr, "synthetic", "(a) Trade-off, hard region", legend=True)
+    with plt.rc_context(PAPER_RC):
+        _fig_combined(maps, fr, out)
+
+
+def _fig_combined(maps, fr, out):
+    fig, ax = plt.subplots(2, 2, figsize=(PAPER_W, 5.6), constrained_layout=True)
+    ax = ax.ravel()
+    _frontier_panel(ax[0], fr, "synthetic", "(a) Trade-off, hard region")
     _frontier_panel(ax[1], fr, "california", "(b) Trade-off, California")
+    h, l = ax[0].get_legend_handles_labels()
+    fig.legend(h, l, loc="outside upper center", ncol=5, frameon=False,
+               handletextpad=0.2, columnspacing=1.0)
     k = "synthetic__"
     init = maps[k + "initial"].mean(0)
     d = maps[k + "weakspot"].mean(0) - maps[k + "uniform"].mean(0)
@@ -252,12 +277,12 @@ def fig_combined(maps, out):
     im = ax[3].imshow(d.reshape(res, res), origin="lower", extent=ext, cmap="RdBu_r",
                       vmin=-v, vmax=v)
     fig.colorbar(im, ax=ax[3], shrink=0.9, label="error change")
-    ax[3].set_title("(d) Weakspot-weighted $-$ uniform")
+    ax[3].set_title("(d) Weakspot-weighted $-$ unweighted baseline")
     for a in ax[2:]:
-        a.add_patch(plt.Circle((0.25, 0.75), 0.2, fill=False, ls="--", lw=1.3, color="k"))
+        a.add_patch(plt.Circle((0.25, 0.75), 0.2, fill=False, ls="--", lw=1.0, color="k"))
         a.set_xlabel("$x_1$")
         a.set_ylabel("$x_2$")
-    fig.savefig(out, dpi=200)
+    _save_paper(fig, out)
     plt.close(fig)
 
 
