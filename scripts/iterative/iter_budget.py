@@ -277,7 +277,36 @@ def run_one(name, region, noise, seed, stage="static"):
             a_t = alpha_schedule(schedule, alpha, t, diag["severity"], S_1,
                                  diag["size"], z_1)
             kk = int(round(a_t * n))
-            if method == "kcenter_part":       # k-center share + uniform rest
+            if method == "kc_land":            # weakspot-weighted k-center, every round
+                used = np.vstack([to_U(X_I), U_R[np.asarray(chosen, dtype=int)]]) \
+                    if chosen else to_U(X_I)
+                span = land.max() - land.min()
+                w = 0.1 + ((land - land.min()) / span if span > 0 else np.zeros_like(land))
+                dd = cKDTree(used).query(U_R[av])[0]
+                idx = []
+                for _ in range(n):
+                    i = int(np.argmax(dd * w))
+                    idx.append(i)
+                    dd = np.minimum(dd, np.linalg.norm(U_R[av] - U_R[av][i], axis=1))
+                    dd[i] = -1.0
+                pick = np.asarray(idx, dtype=int)
+            elif method == "toperr":           # loss-based baseline: largest current errors
+                pick = np.argsort(e)[::-1][:n]
+            elif method == "toperr_kc":        # alpha_t largest errors, rest k-center
+                used = np.vstack([to_U(X_I), U_R[np.asarray(chosen, dtype=int)]]) \
+                    if chosen else to_U(X_I)
+                g = np.argsort(e)[::-1][:kk]
+                rest = np.setdiff1d(np.arange(len(av)), g)
+                kc = pick_kcenter(U_R[av][rest], np.vstack([used, U_R[av][g]]), n - len(g))
+                pick = np.concatenate([g, rest[kc]]).astype(int)
+            elif method == "uniform_sched_kc":   # matched control: alpha_t uniform, rest k-center
+                used = np.vstack([to_U(X_I), U_R[np.asarray(chosen, dtype=int)]]) \
+                    if chosen else to_U(X_I)
+                u = rs.choice(len(av), kk, replace=False) if kk > 0 else np.array([], int)
+                rest = np.setdiff1d(np.arange(len(av)), u)
+                kc = pick_kcenter(U_R[av][rest], np.vstack([used, U_R[av][u]]), n - len(u))
+                pick = np.concatenate([u, rest[kc]]).astype(int)
+            elif method == "kcenter_part":     # k-center share + uniform rest
                 used = np.vstack([to_U(X_I), U_R[np.asarray(chosen, dtype=int)]]) \
                     if chosen else to_U(X_I)
                 g = pick_kcenter(U_R[av], used, kk)
@@ -381,7 +410,17 @@ def run_one(name, region, noise, seed, stage="static"):
                      131),
                     ("hybrid_size_pow2_kc", "region_adapt_kc", "size_pow2", "replay",
                      0.5, 0.3, 132)]
-        if stage.startswith("full2_ctl"):    # controls for focus + coverage
+        if stage.startswith("full2_wkc"):    # weakspot-weighted k-center
+            arms = [("kc_land", "kc_land", "static", "replay", 1.0, 0.3, 170)]
+        elif stage.startswith("full2_err"):  # loss-based baselines
+            arms = [("toperr", "toperr", "static", "replay", 1.0, 0.3, 160),
+                    ("toperr_kc", "toperr_kc", "size_pow2", "replay", 0.5, 0.3, 161)]
+        elif stage.startswith("full2_ctl2"):   # matched control and alpha sensitivity
+            arms = [("uniform_sched_kc", "uniform_sched_kc", "size_pow2", "replay", 0.5,
+                     0.3, 150),
+                    ("hybrid_a025", "region_adapt_kc", "size_pow2", "replay", 0.25, 0.3, 151),
+                    ("hybrid_a075", "region_adapt_kc", "size_pow2", "replay", 0.75, 0.3, 152)]
+        elif stage.startswith("full2_ctl"):  # controls for focus + coverage
             arms = [("kcenter_half_uniform", "kcenter_part", "static", "replay", 0.5, 0.0,
                      140),
                     ("hybrid_fixedreg", "region_kc", "size_pow2", "replay", 0.5, 0.3, 141)]
@@ -416,6 +455,8 @@ def main():
                              "pilot3", "pilot3_smoke", "pilot4", "pilot4_smoke",
                              "full2", "full2_smoke", "full2_kc", "full2_kc_smoke",
                              "full2_abl", "full2_abl_smoke", "full2_ctl", "full2_ctl_smoke",
+                             "full2_ctl2", "full2_ctl2_smoke", "full2_err", "full2_err_smoke",
+                             "full2_wkc", "full2_wkc_smoke",
                              "full", "full_smoke"], required=True)
     ap.add_argument("--workers", type=int, default=19)
     ap.add_argument("--datasets", nargs="+", default=DATASETS, choices=DATASETS)
@@ -458,7 +499,8 @@ def main():
         for name in DATASETS:
             if name != "synth2d":
                 _openml(name)
-    if a.stage in ("full2_smoke", "full2_kc_smoke", "full2_abl_smoke", "full2_ctl_smoke"):
+    if a.stage in ("full2_smoke", "full2_kc_smoke", "full2_abl_smoke", "full2_ctl_smoke",
+                   "full2_ctl2_smoke", "full2_err_smoke", "full2_wkc_smoke"):
         jobs = [("nyc_taxi", "sparse_all:0.03:std", "clean", 8200)]
         out.unlink(missing_ok=True)
     if a.stage.startswith("pilot4"):

@@ -48,11 +48,8 @@ RESULTS = APP / "data" / "experiment_results" / "data_selective_training"
 FIGDIR = RESULTS / "figures"
 PAPER_FIGDIR = (APP.parent / "Documents" / "Paper_DataSelectionOnModelWeakness" / "figures")
 
-# The 50 seeds of the isolation experiments, so this study rests on the same seed
-# set as Section "The Dataset Mix".
-SEEDS = [42, 0, 7, 1, 3, 5, 11, 17, 23, 99, 2, 4, 6, 8, 13, 19, 29, 37, 53, 71,
-         100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114,
-         115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129]
+# The 50 fresh seeds of Sections 4.3 and 4.4 (disjoint from the pilot seeds).
+SEEDS = list(range(1000, 1050))
 
 C_TRUE = "#d62728"      # induced (ground-truth) weakspot
 C_DET = "#ffffff"       # detected weakspot

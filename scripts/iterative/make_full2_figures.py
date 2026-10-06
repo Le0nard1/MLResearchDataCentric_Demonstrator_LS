@@ -65,7 +65,7 @@ def fig_rounds(d, out):
     panels = [("Synthetic, repairable weakspot", (G.dataset == "synth2d") & (G.region == REP)),
               ("Synthetic, scarce weakspot ($\\rho=0.1$)", (G.dataset == "synth2d") & (G.region == S10)),
               ("Real datasets (all conditions)", G.dataset != "synth2d")]
-    fig, axes = plt.subplots(1, 3, figsize=(7.0, 2.2))
+    fig, axes = plt.subplots(1, 3, figsize=(7.0, 1.8))
     for ax, (title, m) in zip(axes, panels):
         ax.axhline(0, color=INK2, lw=0.9)
         for arm in ["ws_default", "ws_half", "ws_tuned"]:
@@ -84,7 +84,7 @@ def fig_dynamics(d, out):
     syn = d[d.dataset == "synth2d"]
     Gi = gains(syn, "err_in")
     x = syn[(syn["round"] > 0) & ((syn.arm != "random") | (syn.traj == 0))]
-    fig, axes = plt.subplots(1, 3, figsize=(7.0, 2.2))
+    fig, axes = plt.subplots(1, 3, figsize=(7.0, 1.8))
     ax = axes[0]
     ax.axhline(0, color=INK2, lw=0.9)
     band(ax, Gi[(Gi.region == REP) & (Gi.arm == "ws_half")], "G", "ws_half",
@@ -92,7 +92,10 @@ def fig_dynamics(d, out):
     band(ax, Gi[(Gi.region == S10) & (Gi.arm == "ws_half")], "G", "ws_half", ls="--",
          label="Scarce ($\\rho=0.1$)")
     ax.set_title("Error reduction inside region [%]", color=INK)
-    ax.legend(frameon=False, loc="lower left")
+    lo, hi = ax.get_ylim()
+    ax.set_ylim(lo, hi + 0.35 * (hi - lo))      # room for the legend above the curves
+    ax.legend(frameon=False, loc="upper center", ncol=2, fontsize=7, handlelength=1.2,
+              columnspacing=0.7, handletextpad=0.4)
     for ax, col, title in [(axes[1], "n_in_region", "Selected points inside region"),
                            (axes[2], "size", "Weakspot size $z_t$")]:
         for arm in ["random", "ws_half"]:
@@ -112,23 +115,23 @@ def fig_hybrid(d, out):
     extra = []
     for name, arms in [("iter_full2_kc.csv", ["kcenter"]),
                        ("iter_full2_abl.csv", ["hybrid_size_pow2_kc"]),
-                       ("iter_full2_ctl.csv", ["kcenter_half_uniform"])]:
+                       ("iter_full2_ctl2.csv", ["uniform_sched_kc"])]:
         x = pd.read_csv(RES / name)
         extra.append(x[x.arm.isin(arms)])
     dd = pd.concat([d[d.arm.isin(["random", "ws_half"])]] + extra)
     G = gains(dd, "mae")
-    col = {"ws_half": COL["ws_half"], "kcenter": "#eda100", "kcenter_half_uniform": "#e87ba4",
+    col = {"ws_half": COL["ws_half"], "kcenter": "#eda100", "uniform_sched_kc": "#e87ba4",
            "hybrid_size_pow2_kc": "#4a3aa7"}
     lab = {"ws_half": r"Static focus, $\alpha=0.5$", "kcenter": "k-center",
-           "kcenter_half_uniform": "k-center half + uniform half",
+           "uniform_sched_kc": "k-center + uniform, same share",
            "hybrid_size_pow2_kc": "Focus + coverage"}
     panels = [("Synthetic, repairable weakspot", (G.dataset == "synth2d") & (G.region == REP)),
               ("Synthetic, scarce weakspot ($\\rho=0.1$)", (G.dataset == "synth2d") & (G.region == S10)),
               ("Real datasets (all conditions)", G.dataset != "synth2d")]
-    fig, axes = plt.subplots(1, 3, figsize=(7.0, 2.2))
+    fig, axes = plt.subplots(1, 3, figsize=(7.0, 1.8))
     for ax, (title, m) in zip(axes, panels):
         ax.axhline(0, color=INK2, lw=0.9)
-        for arm in ["ws_half", "kcenter", "kcenter_half_uniform", "hybrid_size_pow2_kc"]:
+        for arm in ["ws_half", "kcenter", "uniform_sched_kc", "hybrid_size_pow2_kc"]:
             x = G[m & (G.arm == arm)].groupby("round").G
             mu, h = x.mean(), x.apply(lambda s: _ci(s)[1])
             ax.plot(mu.index, mu.values, color=col[arm], marker="o", markersize=3, label=lab[arm])
@@ -193,17 +196,67 @@ def fig_maps(out, seed=8203):
     save(fig, out, "fig_b_maps")
 
 
+def fig_maps_small(out, seed=8203, rounds=(1, 3, 8)):
+    """Single-column map: static focus vs focus + coverage, selected points per round."""
+    IB.TRACE.clear()
+    IB.FIXED.update(record=True)
+    IB.run_one("synth2d", REP, "clean", seed, stage="full2_abl")
+    IB.FIXED.pop("record")
+    rows = [("ws_half", "Static\nfocus"), ("hybrid_size_pow2_kc", "Focus +\ncoverage")]
+    tr = [t for t in IB.TRACE if t["arm"] in dict(rows) and t["traj"] == 0]
+    seq = LinearSegmentedColormap.from_list(
+        "seq", ["#fcfcfb", "#cde2fb", "#86b6ef", "#3987e5", "#1c5cab", "#0d366b"])
+    g = np.linspace(0, 1, 90)
+    GX, GY = np.meshgrid(g, g)
+    grid = np.c_[GX.ravel(), GY.ravel()]
+    Z_true = tr[0]["region_fn"](grid).reshape(GX.shape)
+    vmax = np.quantile([t for t in tr if t["round"] == 1][0]["land"], 0.99)
+    fig, axes = plt.subplots(len(rows), len(rounds), figsize=(3.25, 2.05), sharex=True,
+                             sharey=True)
+    for i, (arm, lab) in enumerate(rows):
+        by_r = {t["round"]: t for t in tr if t["arm"] == arm}
+        for j, r in enumerate(rounds):
+            t, ax = by_r[r], axes[i, j]
+            Z = KNeighborsRegressor(10, weights="distance").fit(t["X_av"], t["land"]) \
+                .predict(grid).reshape(GX.shape)
+            ax.imshow(Z, origin="lower", extent=(0, 1, 0, 1), cmap=seq, vmin=0, vmax=vmax,
+                      interpolation="bilinear", rasterized=True)
+            ax.contour(GX, GY, Z_true, levels=[0.5], colors=[INK], linewidths=0.8)
+            ax.scatter(t["sel_X"][:, 0], t["sel_X"][:, 1], s=1.2, color="#eb6834", lw=0,
+                       zorder=3)
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.grid(False)
+            for sp in ax.spines.values():
+                sp.set_visible(True)
+                sp.set_color(GRID)
+            if i == 0:
+                ax.set_title(f"Round {r}", color=INK, fontsize=8)
+        axes[i, 0].set_ylabel(lab, color=INK, rotation=0, ha="right", va="center", fontsize=8)
+    fig.legend([Line2D([], [], color=INK, lw=0.8),
+                Line2D([], [], marker="o", color="#eb6834", lw=0, markersize=3)],
+               ["Constructed region", "Selected points"], loc="upper center", ncol=2,
+               frameon=False, fontsize=7, bbox_to_anchor=(0.55, 1.04))
+    fig.subplots_adjust(left=0.2, right=0.99, top=0.84, bottom=0.01, wspace=0.05, hspace=0.05)
+    save(fig, out, "fig_b_maps_small")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
     ap.add_argument("--skip-maps", action="store_true", help="skip the traced map figure")
+    ap.add_argument("--maps-small-only", action="store_true",
+                    help="only the compact main-text map")
     a = ap.parse_args()
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
+    if a.maps_small_only:
+        fig_maps_small(out)
+        return
     d = pd.read_csv(RES / "iter_full2.csv")
     fig_rounds(d, out)
     fig_dynamics(d, out)
-    if (RES / "iter_full2_ctl.csv").exists():
+    if (RES / "iter_full2_ctl2.csv").exists():
         fig_hybrid(d, out)
     if not a.skip_maps:
         fig_maps(out)

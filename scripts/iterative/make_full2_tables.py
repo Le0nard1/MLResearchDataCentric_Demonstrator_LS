@@ -28,6 +28,12 @@ ARMS = [("ws_default", r"Static, $\alpha=0.2$"), ("ws_half", r"Static, $\alpha=0
         ("hybrid_fixedreg", r"Focus + coverage, fixed region"),
         ("kcenter", r"Iterated k-center (coverage)"),
         ("kcenter_half_uniform", r"k-center half + uniform half"),
+        ("uniform_sched_kc", r"k-center + uniform, matched share"),
+        ("hybrid_a025", r"Focus + coverage, $\alpha=0.25$"),
+        ("hybrid_a075", r"Focus + coverage, $\alpha=0.75$"),
+        ("toperr", r"Top error"),
+        ("toperr_kc", r"Top error + coverage"),
+        ("kc_land", r"Weakspot-weighted k-center"),
         ("hybrid_size_pow2_kc", r"Focus + coverage")]
 # Compact main-text table; the full list goes to the appendix.
 MAIN = [("ws_half", r"Static focus, $\alpha=0.5$"), ("ws_dynamic", r"Dynamic, $\alpha=1$"),
@@ -38,7 +44,13 @@ MAIN = [("ws_half", r"Static focus, $\alpha=0.5$"), ("ws_dynamic", r"Dynamic, $\
         ("kcenter_half_uniform", r"k-center half + uniform half"),
         ("hybrid_size_pow2_kc", r"Focus + coverage")]
 PAIRS = [("hybrid_size_pow2_kc", "kcenter_half_uniform"), ("hybrid_size_pow2_kc", "kcenter"),
-         ("hybrid_size_pow2_kc", "hybrid_fixedreg"), ("kcenter_half_uniform", "kcenter")]
+         ("hybrid_size_pow2_kc", "hybrid_fixedreg"), ("kcenter_half_uniform", "kcenter"),
+         ("hybrid_size_pow2_kc", "uniform_sched_kc"), ("uniform_sched_kc", "kcenter"),
+         ("uniform_sched_kc", "kcenter_half_uniform"),
+         ("kc_land", "hybrid_size_pow2_kc"), ("kc_land", "kcenter"),
+         ("hybrid_size_pow2_kc", "toperr_kc"), ("toperr_kc", "uniform_sched_kc"),
+         ("toperr_kc", "kcenter"), ("toperr", "ws_tuned"),
+         ("hybrid_a025", "hybrid_size_pow2_kc"), ("hybrid_a075", "hybrid_size_pow2_kc")]
 COND = [("sparse_init:0.25:std", "Repairable"), ("sparse_all:0.25:std", r"Scarce, $\rho=0.25$"),
         ("sparse_all:0.1:std", r"Scarce, $\rho=0.1$"), ("sparse_all:0.03:std", r"Scarce, $\rho=0.03$"),
         ("sparse_init:0.25:short", "Repairable, short init."),
@@ -54,6 +66,14 @@ def holm(p):
         run = max(run, (len(p) - rank) * p[i])
         adj[i] = min(1.0, run)
     return adj
+
+
+def ci(v, B=10000, seed=0):
+    """95% percentile bootstrap interval of the mean over independent runs."""
+    v = np.asarray(v, float)
+    rs = np.random.default_rng(seed)
+    m = v[rs.integers(0, len(v), (B, len(v)))].mean(1)
+    return np.percentile(m, [2.5, 97.5])
 
 
 def per_run_gain(d):
@@ -92,9 +112,9 @@ def main():
         x = pd.read_csv(abl)
         d = pd.concat([d, x[x.arm.isin(["ws_half_size_pow2_fixedreg", "ws_half_adaptreg",
                                         "hybrid_size_pow2_kc"])]])
-    ctl = IB.RES / "iter_full2_ctl.csv"          # controls for focus + coverage
-    if ctl.exists():
-        d = pd.concat([d, pd.read_csv(ctl)])
+    for f in ["iter_full2_ctl.csv", "iter_full2_ctl2.csv", "iter_full2_err.csv", "iter_full2_wkc.csv"]:   # controls, alpha variants
+        if (IB.RES / f).exists():
+            d = pd.concat([d, pd.read_csv(IB.RES / f)])
     g = per_run_gain(d)
     have = set(g.arm)
     arms = [(a, l) for a, l in ARMS if a in have]
@@ -112,11 +132,19 @@ def main():
         if x not in run or y not in run:
             continue
         dlt = (run[x] - run[y]).dropna()
-        per = [(ds, dlt.xs(ds, level=0)) for ds, _ in DS]
+        have_ds = set(dlt.index.get_level_values(0))
+        per = [(ds, dlt.xs(ds, level=0)) for ds, _ in DS if ds in have_ds]
         padj = holm([wilcoxon(v).pvalue for _, v in per])
-        print(f"\n% {x} minus {y}: pooled {dlt.mean():+.2f} (p={wilcoxon(dlt).pvalue:.0e})")
+        lo, hi = ci(dlt.values)
+        print(f"\n% {x} minus {y}: pooled {dlt.mean():+.2f} [{lo:+.2f}, {hi:+.2f}] "
+              f"(n={len(dlt)}, p={wilcoxon(dlt).pvalue:.0e})")
         print("%   " + ", ".join(f"{ds}: {v.mean():+.2f}{'*' if p < 0.01 else ''}"
                                 for (ds, v), p in zip(per, padj)))
+    print("\n% Pooled mean against random selection, 95% bootstrap CI over runs")
+    for a, _ in arms:
+        v = run[a].dropna().values
+        lo, hi = ci(v)
+        print(f"%   {a}: {v.mean():.2f} [{lo:.2f}, {hi:.2f}] (n={len(v)})")
     g["kind"] = np.where(g.dataset == "synth2d", "syn", "real")
     sel = ["ws_half", "ws_tuned", "ws_half_adaptreg", "hybrid_size_pow2_kc"]
     cells2 = {}
