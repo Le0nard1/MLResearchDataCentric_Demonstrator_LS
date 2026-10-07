@@ -1,7 +1,7 @@
-# Reproducing Paper A: Selecting Data Where the Model Is Weak
+# Reproducing Paper A: single-round weakspot curation
 
-Code, configurations and per-seed results in this repository for the paper *Selecting Data Where the Model Is
-Weak: Statistically Guided Curation for Data-Centric Training*.
+Code, configurations and per-seed results in this repository for Paper A (under review),
+which selects training data at the statistically detected weakspot in a single round.
 Every number and figure of the paper can be recomputed from this repository.
 
 ## Setup

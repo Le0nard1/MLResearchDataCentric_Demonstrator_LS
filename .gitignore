@@ -28,7 +28,7 @@ Thumbs.db
 data/experiment_results/*.csv
 data/experiment_results/**/*.csv
 
-# Per-seed results of Paper A (Selecting Data Where the Model Is Weak), kept for
+# Per-seed results of Paper A (single-round weakspot curation), kept for
 # reproducibility; see REPRODUCE_PAPER_A.md.
 !data/experiment_results/data_selective_training/budget_v2_bench.csv
 !data/experiment_results/data_selective_training/budget_v2_main.csv

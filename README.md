@@ -14,7 +14,7 @@ The repository supports three lines of work, each backed by a paper:
 | # | Approach | Question | Paper |
 |---|----------|----------|-------|
 | 1 | [Weakspot Identification Ensembles](#1-weakspot-identification-ensembles) | *Where* is the model weak, and which estimator finds it best? | *Advanced Methods for Weakspot Identification in Regression Models* (ICTAI) |
-| 2 | [Guided Curation](#2-guided-curation) | Does selecting new data at the weakspot beat selecting it at random? | *Selecting Data Where the Model Is Weak: Statistically Guided Curation for Data-Centric Training* |
+| 2 | [Guided Curation](#2-guided-curation) | Does selecting new data at the weakspot beat selecting it at random? | Paper A, single-round weakspot curation (under review) |
 | 3 | [Data-Selective Training on Weakspots](#3-data-selective-training-on-weakspots) | What happens when the selection is repeated over rounds of retraining? | Paper B, iterated weakspot curation (under review) |
 
 They build on each other: (1) establishes how to find a weakspot, (2) uses that location
@@ -259,7 +259,7 @@ python run_sweep.py --config alpha_boundary --workers 6
 
 Results land in `data/experiment_results/data_selective_training/sweep__<config>.csv`.
 
-**Reproducing the paper.** Every table and figure of *Selecting Data Where the Model Is Weak*, from the training-budget comparison (`budget_v2.py`, CRAIG/GLISTER, weakspot-weighted k-center) to the reweighting experiments (`fixed_data*.py`), is mapped to its command in [`REPRODUCE_PAPER_A.md`](REPRODUCE_PAPER_A.md); the per-seed results behind them are included under `data/experiment_results/data_selective_training/`.
+**Reproducing the paper.** Every table and figure of Paper A, from the training-budget comparison (`budget_v2.py`, CRAIG/GLISTER, weakspot-weighted k-center) to the reweighting experiments (`fixed_data*.py`), is mapped to its command in [`REPRODUCE_PAPER_A.md`](REPRODUCE_PAPER_A.md); the per-seed results behind them are included under `data/experiment_results/data_selective_training/`.
 
 ---
 

@@ -1,7 +1,7 @@
-# Experimental details — *Selecting Data Where the Model Is Weak*
+# Experimental details — Paper A
 
-Supplementary material for the paper *Selecting Data Where the Model Is Weak:
-Statistically Guided Curation for Data-Centric Training*. The paper refers to this
+Supplementary material for Paper A (single-round weakspot curation, under review).
+The paper refers to this
 file for the details that are not needed to follow its argument.
 
 ## A. Experimental details
