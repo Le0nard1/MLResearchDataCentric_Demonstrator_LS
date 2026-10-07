@@ -102,6 +102,31 @@ def table(cells, rows, cols, row_lab, col_lab):
     return "\n".join(lines)
 
 
+def absolute(d):
+    """Appendix table of absolute errors and the retraining-regime figures of Section 4.5:
+    test MAE of the initial model and after round 8, replay against new points only."""
+    K = ["dataset", "region", "seed"]
+    fin = d[d["round"] == 8].groupby(K + ["arm"]).mae.mean().unstack("arm")
+    init = d[(d["round"] == 0) & (d.arm == "random")].groupby(K).mae.mean()
+    cols = ["random_new", "random", "ws_half", "ws_half_size_pow2", "kcenter"]
+    tab = pd.concat([init.rename("initial"), fin[[c for c in cols if c in fin]]], axis=1)
+    names = dict(DS) | {"synth2d": "Synthetic", "brazilian_houses": "Brazilian houses",
+                        "diamonds": "Diamonds", "houses": "California housing",
+                        "medical_charges": "Medical charges", "nyc_taxi": "NYC taxi trips",
+                        "sulfur": "Sulfur"}
+    print("\n% Table: absolute errors (initial, new only, random, static 0.5, size r^2, k-center)")
+    m = tab.groupby("dataset").mean()
+    for ds, _ in DS:
+        if ds in m.index:
+            print(f"{names[ds]} & " + " & ".join(f"${v:.3f}$" for v in m.loc[ds]) + r" \\")
+    real = tab.reset_index()
+    real = real[real.dataset != "synth2d"]
+    print("% Retraining regime, real datasets, random selection: replay vs new points only "
+          f"{100 * ((real.random - real.random_new) / real.random_new).mean():+.1f}% final MAE; "
+          f"below the initial MAE in {100 * (real.random < real.initial).mean():.0f}% "
+          f"(replay) vs {100 * (real.random_new < real.initial).mean():.0f}% (new only) of runs")
+
+
 def main():
     d = pd.read_csv(IB.RES / "iter_full2.csv")
     kc = IB.RES / "iter_full2_kc.csv"           # k-center baseline, paired with full2
@@ -115,6 +140,7 @@ def main():
     for f in ["iter_full2_ctl.csv", "iter_full2_ctl2.csv", "iter_full2_err.csv", "iter_full2_wkc.csv"]:   # controls, alpha variants
         if (IB.RES / f).exists():
             d = pd.concat([d, pd.read_csv(IB.RES / f)])
+    absolute(d)
     g = per_run_gain(d)
     have = set(g.arm)
     arms = [(a, l) for a, l in ARMS if a in have]

@@ -15,7 +15,7 @@ The repository supports three lines of work, each backed by a paper:
 |---|----------|----------|-------|
 | 1 | [Weakspot Identification Ensembles](#1-weakspot-identification-ensembles) | *Where* is the model weak, and which estimator finds it best? | *Advanced Methods for Weakspot Identification in Regression Models* (ICTAI) |
 | 2 | [Guided Curation](#2-guided-curation) | Does selecting new data at the weakspot beat selecting it at random? | *Selecting Data Where the Model Is Weak: Statistically Guided Curation for Data-Centric Training* |
-| 3 | [Data-Selective Training on Weakspots](#3-data-selective-training-on-weakspots) | What happens when you close the loop and repeat? | *Data-Centric Training on Weakspots: An Analysis* |
+| 3 | [Data-Selective Training on Weakspots](#3-data-selective-training-on-weakspots) | What happens when the selection is repeated over rounds of retraining? | Paper B, iterated weakspot curation (under review) |
 
 They build on each other: (1) establishes how to find a weakspot, (2) uses that location
 to select data once, and (3) iterates the selection over many rounds.
@@ -43,6 +43,7 @@ scripts/dataselect/ engine for approach 2
 scripts/iterative/  engine for approach 3
 scripts/realdata/   real-dataset variant of the loop
 data/experiment_results/<experiment>/   sweep result CSVs
+REPRODUCE_PAPER_A.md, REPRODUCE_PAPER_B.md   paper -> command maps
 ```
 
 Results are stored as CSVs with one row per configuration × method, each carrying a
@@ -269,14 +270,45 @@ Results land in `data/experiment_results/data_selective_training/sweep__<config>
 Approach 2 selects once. This one closes the loop: detect the weakspot, select points,
 retrain, then re-detect on the *updated* model and repeat. That makes the questions
 dynamic. Does the weakspot move once it has been filled? Does guidance keep paying off
-in later rounds, or does the advantage decay as the obvious gap closes? Is it better to
-commit to the strongest signal early or to spread the budget across rounds?
+in later rounds, or does the advantage decay as the obvious gap closes? How should the
+focus adapt, and should it be combined with coverage of the input space?
 
-Because every round writes one row per detector per iteration, a run produces a
-trajectory rather than a single outcome, and the sweeps compare *schedules* — how the
-guided share is allocated over rounds — as much as detectors.
+### Two engines
 
-### Scripts
+`scripts/iterative/` holds two engines for the same loop. Use the first to reproduce or
+reuse the paper's methods, the second to explore interactively.
+
+**Paper engine (head-less)** — the experiments of Paper B, at equal compute per round
+(new points plus replayed earlier points), on a synthetic task and six benchmark
+regression datasets. [`REPRODUCE_PAPER_B.md`](REPRODUCE_PAPER_B.md) maps every table and
+figure to its command.
+
+| File | Role |
+|---|---|
+| `scripts/iterative/iter_budget.py` | the loop, the schedules (`alpha_schedule`), the diagnostics (`diagnose`) and the paper stages |
+| `scripts/iterative/selection.py` | every selection rule of the paper as a reusable function (`select`), plus the ground-truth-free severity and size of the detected weakspot (`held_out_measures`) |
+| `scripts/iterative/make_full2_tables.py` | all tables, paired tests, bootstrap intervals |
+| `scripts/iterative/make_full2_figures.py` | all figures (`make_iter_figures.py` holds the shared style) |
+| `scripts/iterative/analysis_kcenter_sparsity.py` | how often k-center selects sparse areas |
+| `scripts/iterative/example_reuse.py` | the recommended strategy on a toy task, as a template for your own data |
+
+The recommended strategy, *focus + coverage*, draws a share of each batch from the
+clearly elevated part of the error landscape, shrinks that share with the measured
+weakspot size, and fills the rest by k-center:
+
+```python
+from scripts.dataselect.budget import landscape
+from scripts.iterative.selection import held_out_measures, select
+
+land = landscape(U, e, k=10)                    # U: reserve (standardised), e: model errors
+z_t = held_out_measures(U, e, rs)["size"]       # weakspot size, no ground truth needed
+n_focus = round(200 * 0.5 * min(1, z_t / z_1) ** 2)   # z_1: the size in round 1
+pick = select("region_adapt_kc", 200, n_focus, U, e, land, U_train, rs)
+```
+
+**Exploration engine (interactive)** — the Streamlit pages 09 and 10 and the JSON sweep
+grids behind them, used to explore schedules, anchoring, budgets and architectures before
+the paper's protocol was fixed.
 
 | File | Role |
 |---|---|
@@ -289,7 +321,10 @@ guided share is allocated over rounds — as much as detectors.
 
 **Run it.** Interactively via `app/pages/09_Iterative_Data_Selective_Training.py`,
 aggregated in `app/pages/10_Iterative_Visualise_Results.py`. Results land in
-`data/experiment_results/iterative_data_selective_training/`.
+`data/experiment_results/iterative_data_selective_training/`, next to the analyses of an
+earlier draft (`ANALYSIS_*.md`, `analysis_scripts/`). Those analyses are superseded by the
+paper engine: their setup placed the weak region at the centre of the tallest bump and
+started from an undertrained model, which inflates the advantage of guided selection.
 
 ### Real data
 
@@ -304,8 +339,9 @@ survives contact with data whose weakspots were not induced on purpose. See
 
 ## Notes
 
-- Sweep result CSVs are committed; raw datasets, trained models and generated figure
-  directories are git-ignored (see `.gitignore`).
+- Result CSVs are git-ignored, apart from the per-seed results of Paper A listed in
+  `.gitignore`; the scripts regenerate them. Raw datasets, trained models and generated
+  figure directories are git-ignored as well.
 - Figure-generating scripts write directly into the corresponding paper's `figures/`
   folder, resolved relative to the script rather than the working directory, so they can
   be run from anywhere.

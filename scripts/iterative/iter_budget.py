@@ -1,29 +1,43 @@
 """
-Iterated weakspot curation (Paper B, Section 4.2 onwards): the single-pass step of the
-budget protocol (``scripts.dataselect.budget_v2``, Paper A Sections 4.3-4.4) repeated
-over T rounds.
+Iterated weakspot curation: the experiment engine of Paper B.
 
-Per seed: fixed dataset (initial set I of 500, reserve R of 4000), a weak region (the
-10% nearest a random anchor) in one of four conditions, clean or 5%-outlier labels, a
-noiseless/unthinned test set. Each arm runs its own loop: round t detects on the
-current model's errors over the remaining reserve, selects n points, and retrains the
-current model warm-started for a fixed number of epochs on I plus every point selected
-so far (accumulated regime).
+The single-round selection step of Paper A (``scripts.dataselect.budget_v2``) is repeated
+over T = 8 rounds at constant compute per round. A run is one dataset, condition and seed:
+a fixed dataset of 4500 labelled points (initial set 500, reserve 4000), a constructed
+weak region (the 10% nearest a random anchor, thinned to density rho) and an unthinned
+test set. Every strategy ("arm") runs its own loop; in round t it
 
-Arms (stage ``static``, Section 4.2):
-    random       uniform selection, N_RANDOM independent loops per seed
-    ws_tuned     Paper A tuned step: kNN landscape, alpha = 1, top 30%
-    ws_default   Paper A a-priori step: alpha = 0.2, top 15%
+  1. computes the current model's errors on the remaining reserve, smooths them into the
+     kNN error landscape and diagnoses the detected weakspot: severity, size, centre and
+     drift (``diagnose``),
+  2. sets the focused share alpha_t of the batch by a schedule (``alpha_schedule``),
+  3. selects n = 200 new points (``scripts.iterative.selection.select``),
+  4. retrains warm-started for E = 200 epochs on the new points plus m = 200 points
+     replayed from earlier training data (regime "replay").
 
-Per round and arm the detection on the model entering the round is diagnosed
-(Section 3.3): cross-fitted severity and one-sided Mann-Whitney p-value, detected
-centre (argmax of the landscape), its offset from the anchor and drift from the
-previous round, and localisation precision against its chance level.
+The control is random selection on the same data and initial model, so every comparison
+between strategies is paired; the engine is deterministic given the seed.
 
-    python -m scripts.iterative.iter_budget --stage smoke --workers 7
-    python -m scripts.iterative.iter_budget --stage static --workers 19
-    python -m scripts.iterative.iter_budget --stage static --workers 12 \
-        --datasets synth2d --n-seeds 50
+Stages of the paper: 7 datasets x 6 conditions x 20 seeds (8200-8219) = 840 jobs each,
+results in ``data/experiment_results/iterative_weakspot_curation/iter_<stage>.csv``:
+
+    full2       random control; static, dynamic, severity- and size-adaptive focus;
+                random selection retrained on new points only (random_new)
+    full2_kc    iterated k-center (coverage)
+    full2_abl   ablation of the size-adaptive schedule, focus + coverage, gain inside
+                the detected region
+    full2_ctl   k-center half + uniform half; focus + coverage with the fixed region
+    full2_ctl2  matched control (same share uniform, rest k-center); alpha 0.25 and 0.75
+    full2_err   top error; top error + coverage
+    full2_wkc   weakspot-weighted k-center
+
+The stages ``static``, ``pilot*`` and ``full`` are the development runs (separate seeds).
+Every stage has a ``<stage>_smoke`` variant that runs a single job.
+
+    python -m scripts.iterative.iter_budget --stage full2_smoke
+    python -m scripts.iterative.iter_budget --stage full2 --workers 8
+    python -m scripts.iterative.iter_budget --stage full2_kc --workers 8 \
+        --datasets synth2d --n-seeds 5
 """
 from __future__ import annotations
 
@@ -42,12 +56,11 @@ warnings.filterwarnings("ignore")
 import numpy as np
 import pandas as pd
 from scipy.spatial import cKDTree
-from scipy.stats import mannwhitneyu
 
 from scripts.weakspot.models import build_model
 from scripts.dataselect import budget_v2 as B
 from scripts.dataselect.budget import _openml, landscape
-from scripts.dataselect.baselines import pick_kcenter, with_rehearsal
+from scripts.iterative.selection import held_out_measures, select
 
 RES = Path("data/experiment_results/iterative_weakspot_curation")
 
@@ -155,23 +168,12 @@ def diagnose(U, e, in_reg, anchor, prev_c, rs):
     land = landscape(U, e, k)
     W = land >= np.quantile(land, 1 - q)
     c = U[int(np.argmax(land))]
-    half = rs.permutation(len(U)) % 2 == 0
-    A, Bh = np.flatnonzero(half), np.flatnonzero(~half)
-    land_A = landscape(U[A], e[A], k)
-    d, nb = cKDTree(U[A]).query(U[Bh], k=k)
-    w = 1.0 / np.maximum(d, 1e-12)
-    land_B = (w * e[A][nb]).sum(1) / w.sum(1)
-    WB = land_B >= np.quantile(land_A, 1 - q)
-    inn, out = e[Bh][WB], e[Bh][~WB]
-    diag = dict(severity=float(inn.mean() / out.mean()),
-                p_value=float(mannwhitneyu(inn, out, alternative="greater").pvalue),
+    h = held_out_measures(U, e, rs, k, q, FIXED["kappa"])   # severity, p-value, size
+    diag = dict(severity=h["severity"], p_value=h["p_value"],
                 prec=float(in_reg[W].mean()), chance=float(in_reg.mean()),
                 offset=float(np.linalg.norm(c - anchor)),
                 drift=float(np.linalg.norm(c - prev_c)) if prev_c is not None else np.nan,
-                c0=float(c[0]), c1=float(c[1]),
-                # weakspot size: share of the held-out half whose landscape exceeds
-                # kappa x the median of the landscape fitted on the other half
-                size=float((land_B > FIXED['kappa'] * np.median(land_A)).mean()))
+                c0=float(c[0]), c1=float(c[1]), size=h["size"])
     return diag, land, c
 
 
@@ -277,70 +279,10 @@ def run_one(name, region, noise, seed, stage="static"):
             a_t = alpha_schedule(schedule, alpha, t, diag["severity"], S_1,
                                  diag["size"], z_1)
             kk = int(round(a_t * n))
-            if method == "kc_land":            # weakspot-weighted k-center, every round
-                used = np.vstack([to_U(X_I), U_R[np.asarray(chosen, dtype=int)]]) \
-                    if chosen else to_U(X_I)
-                span = land.max() - land.min()
-                w = 0.1 + ((land - land.min()) / span if span > 0 else np.zeros_like(land))
-                dd = cKDTree(used).query(U_R[av])[0]
-                idx = []
-                for _ in range(n):
-                    i = int(np.argmax(dd * w))
-                    idx.append(i)
-                    dd = np.minimum(dd, np.linalg.norm(U_R[av] - U_R[av][i], axis=1))
-                    dd[i] = -1.0
-                pick = np.asarray(idx, dtype=int)
-            elif method == "toperr":           # loss-based baseline: largest current errors
-                pick = np.argsort(e)[::-1][:n]
-            elif method == "toperr_kc":        # alpha_t largest errors, rest k-center
-                used = np.vstack([to_U(X_I), U_R[np.asarray(chosen, dtype=int)]]) \
-                    if chosen else to_U(X_I)
-                g = np.argsort(e)[::-1][:kk]
-                rest = np.setdiff1d(np.arange(len(av)), g)
-                kc = pick_kcenter(U_R[av][rest], np.vstack([used, U_R[av][g]]), n - len(g))
-                pick = np.concatenate([g, rest[kc]]).astype(int)
-            elif method == "uniform_sched_kc":   # matched control: alpha_t uniform, rest k-center
-                used = np.vstack([to_U(X_I), U_R[np.asarray(chosen, dtype=int)]]) \
-                    if chosen else to_U(X_I)
-                u = rs.choice(len(av), kk, replace=False) if kk > 0 else np.array([], int)
-                rest = np.setdiff1d(np.arange(len(av)), u)
-                kc = pick_kcenter(U_R[av][rest], np.vstack([used, U_R[av][u]]), n - len(u))
-                pick = np.concatenate([u, rest[kc]]).astype(int)
-            elif method == "kcenter_part":     # k-center share + uniform rest
-                used = np.vstack([to_U(X_I), U_R[np.asarray(chosen, dtype=int)]]) \
-                    if chosen else to_U(X_I)
-                g = pick_kcenter(U_R[av], used, kk)
-                pick = with_rehearsal(g, n, len(av), rs)
-            elif method == "kcenter":
-                used = np.vstack([to_U(X_I), U_R[np.asarray(chosen, dtype=int)]]) \
-                    if chosen else to_U(X_I)
-                pick = pick_kcenter(U_R[av], used, n)
-            elif method == "random" or kk == 0:
-                pick = rs.choice(len(av), n, replace=False)
-            else:
-                members = np.flatnonzero(land >= np.quantile(land, 1 - q))
-                if method in ("region_adapt", "region_adapt_kc"):  # elevated area, capped
-                    elev = np.flatnonzero(land > f["kappa"] * np.median(land))
-                    if len(elev) < len(members):
-                        members = elev
-                if len(members) == 0:
-                    members = np.arange(len(av))
-                if method in ("region", "region_adapt", "region_adapt_kc", "region_kc"):
-                    g = rs.choice(members, min(kk, len(members)), replace=False)
-                elif method == "rho_filter":       # reducible loss within the region
-                    red = e - il[av]
-                    g = members[np.argsort(red[members])[::-1][:min(kk, len(members))]]
-                elif method == "rho_landscape":    # reducible loss x error landscape
-                    g = np.argsort(np.maximum(e - il[av], 0) * land)[::-1][:kk]
-                if method in ("region_adapt_kc", "region_kc"):  # rest covers the space
-                    rest = np.setdiff1d(np.arange(len(av)), g)
-                    used = np.vstack([to_U(X_I), U_R[np.asarray(chosen, dtype=int)]]) \
-                        if chosen else to_U(X_I)
-                    kc = pick_kcenter(U_R[av][rest], np.vstack([used, U_R[av][g]]),
-                                      n - len(g))
-                    pick = np.concatenate([g, rest[kc]]).astype(int)
-                else:
-                    pick = with_rehearsal(g, n, len(av), rs)
+            used = np.vstack([to_U(X_I), U_R[np.asarray(chosen, dtype=int)]]) \
+                if chosen else to_U(X_I)
+            pick = select(method, n, kk, U_R[av], e, land, used, rs, q=q,
+                          kappa=f["kappa"], il=il[av] if il is not None else None)
             # Detected region on the test set (for the error reduction inside it)
             if stage.startswith("full2_abl"):
                 dk, nk = cKDTree(U_R[av]).query(U_ev, k=f["k_diag"])
