@@ -258,6 +258,8 @@ python run_sweep.py --config alpha_boundary --workers 6
 
 Results land in `data/experiment_results/data_selective_training/sweep__<config>.csv`.
 
+**Reproducing the paper.** Every table and figure of *Selecting Data Where the Model Is Weak*, from the training-budget comparison (`budget_v2.py`, CRAIG/GLISTER, weakspot-weighted k-center) to the reweighting experiments (`fixed_data*.py`), is mapped to its command in [`REPRODUCE_PAPER_A.md`](REPRODUCE_PAPER_A.md); the per-seed results behind them are included under `data/experiment_results/data_selective_training/`.
+
 ---
 
 ## 3. Data-Selective Training on Weakspots

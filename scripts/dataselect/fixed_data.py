@@ -108,6 +108,24 @@ K_SMOOTH = 10
 # ─────────────────────────────────────────────────────────────
 # Data
 # ─────────────────────────────────────────────────────────────
+def _cal_raw():
+    """Raw California housing table (longitude, latitude, ..., median house value).
+
+    Uses the local cache if present. Otherwise the needed columns are rebuilt from the
+    OpenML copy of the same data (id 44138, the version of the Grinsztajn et al.
+    benchmark used in Section 4.3), which holds the same rows in the same order with the
+    target stored as log(value + 1); the result is identical to the cached table.
+    """
+    if CAL_RAW.exists():
+        return np.load(CAL_RAW)
+    from scripts.dataselect.budget import _openml
+    X, y = _openml("houses")                  # columns: ..., latitude, longitude
+    a = np.zeros((len(y), 9))
+    a[:, 0], a[:, 1] = X[:, 7], X[:, 6]
+    a[:, 8] = np.round(np.expm1(y))
+    return a
+
+
 def _sample_region_density(n, rng, centre, radius, rho):
     """Uniform on [0,1]^2 except inside the region, kept with probability rho."""
     out = []
@@ -161,7 +179,7 @@ _CAL = None
 def make_california(seed):
     global _CAL
     if _CAL is None:
-        a = np.load(CAL_RAW)
+        a = _cal_raw()
         X = a[:, :2].copy()
         X = (X - X.min(0)) / (X.max(0) - X.min(0))
         _CAL = (X, a[:, 8] / 1e5)

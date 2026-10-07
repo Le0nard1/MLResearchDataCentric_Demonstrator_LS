@@ -27,6 +27,30 @@ Thumbs.db
 # Recursive so subfolders like AWS_Results/ are covered too.
 data/experiment_results/*.csv
 data/experiment_results/**/*.csv
+
+# Per-seed results of Paper A (Selecting Data Where the Model Is Weak), kept for
+# reproducibility; see REPRODUCE_PAPER_A.md.
+!data/experiment_results/data_selective_training/budget_v2_bench.csv
+!data/experiment_results/data_selective_training/budget_v2_main.csv
+!data/experiment_results/data_selective_training/budget_v2_main_a1.csv
+!data/experiment_results/data_selective_training/budget_v2_tune.csv
+!data/experiment_results/data_selective_training/detector_pilot.csv
+!data/experiment_results/data_selective_training/fixed_data.csv
+!data/experiment_results/data_selective_training/fixed_data_frontier.csv
+!data/experiment_results/data_selective_training/fixed_data_hd_frontier.csv
+!data/experiment_results/data_selective_training/fixed_data_hd_pilot.csv
+!data/experiment_results/data_selective_training/fixed_data_hd_setup.csv
+!data/experiment_results/data_selective_training/fixed_data_hd_summary.csv
+!data/experiment_results/data_selective_training/fixed_data_pilot.csv
+!data/experiment_results/data_selective_training/fixed_data_ratio.csv
+!data/experiment_results/data_selective_training/fixed_data_setup.csv
+!data/experiment_results/data_selective_training/fixed_data_summary.csv
+!data/experiment_results/data_selective_training/table_comparison.csv
+!data/experiment_results/data_selective_training/pilot_craig_glister.csv
+!data/experiment_results/data_selective_training/pilot_craig_glister_bench.csv
+!data/experiment_results/data_selective_training/hybrid_main.csv
+!data/experiment_results/data_selective_training/hybrid_bench.csv
+!data/experiment_results/data_selective_training/pilot_hybrid.csv
 # Local backups created during CSV migrations / manual saves.
 *_backup.csv
 *_premethod_*.csv
