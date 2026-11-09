@@ -71,6 +71,9 @@ STAGES = {
                  budgets=(2000, 10000), seeds=range(9700, 9710), strategies=DEEP),
     "deep_bench": dict(FIXED, regimes=BENCHMARKS, dims=(0,), seeds=range(9600, 9620),
                        strategies=("weakspot_pca",) + DEEP),
+    # the final refinement on the seeds of the fixed stage, for its row of the table
+    "deep_fixed": dict(FIXED, regimes=LANDSCAPES + RARE + ("four_branch",), dims=(2, 5, 10),
+                       seeds=range(9500, 9520), strategies=("weakspot_pca_deep",)),
     # Experiment 2 again: the baselines and scalar steering, paired with the benchmarks stage
     "bench_extra_smoke": dict(regimes=("otl_iid", "robot_shift"), dims=(0,), budgets=(1000,),
                               seeds=range(9000, 9002), strategies=BASELINES + SCALAR),
