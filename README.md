@@ -9,16 +9,18 @@ space. It concentrates where the training data was thin. If those regions can be
 *located*, they can also be *targeted*, by curating the next batch of training data
 where the model is actually weak rather than uniformly at random.
 
-The repository supports three lines of work, each backed by a paper:
+The repository supports four lines of work, each backed by a paper:
 
 | # | Approach | Question | Paper |
 |---|----------|----------|-------|
 | 1 | [Weakspot Identification Ensembles](#1-weakspot-identification-ensembles) | *Where* is the model weak, and which estimator finds it best? | *Advanced Methods for Weakspot Identification in Regression Models* (ICTAI) |
 | 2 | [Guided Curation](#2-guided-curation) | Does selecting new data at the weakspot beat selecting it at random? | Paper A, single-round weakspot curation (under review) |
 | 3 | [Data-Selective Training on Weakspots](#3-data-selective-training-on-weakspots) | What happens when the selection is repeated over rounds of retraining? | Paper B, iterated weakspot curation (under review) |
+| 4 | Weakspot-Guided Testing | Where does a frozen model fall short, under a limited query budget? | Paper C, in progress ([plan](PAPER_C_PLAN.md)) |
 
 They build on each other: (1) establishes how to find a weakspot, (2) uses that location
-to select data once, and (3) iterates the selection over many rounds.
+to select data once, (3) iterates the selection over many rounds, and (4) turns from
+training to safety assessment: the weakspot directs tests instead of training data.
 
 ---
 
@@ -42,8 +44,10 @@ scripts/weakspot/   engine for approach 1
 scripts/dataselect/ engine for approach 2
 scripts/iterative/  engine for approach 3
 scripts/realdata/   real-dataset variant of the loop
+scripts/regional/   engine for approach 4
 data/experiment_results/<experiment>/   sweep result CSVs
 REPRODUCE_PAPER_A.md, REPRODUCE_PAPER_B.md   paper -> command maps
+PAPER_C_PLAN.md     plan of the paper in progress
 ```
 
 Results are stored as CSVs with one row per configuration × method, each carrying a
