@@ -28,6 +28,8 @@ Strategies (``strategy`` argument of :func:`run`):
     sobol          baseline: representative stream, then a scrambled Sobol sequence
     straddle       baseline: level set estimation, tests where the estimate straddles tau
     oracle         upper reference: exploration as random, region around the true centre
+    <s>_scalar     weakspot, peel or subspace steering on the scalar outcome; the bound, the
+                   confirmation and the label still use the binary failures
 """
 from __future__ import annotations
 
@@ -45,6 +47,7 @@ STRATEGIES = ("random", "binning", "weakspot", "fixed_radius", "top_error", "ran
 VARIANTS = ("random", "binning", "weakspot", "soft", "soft_optimistic", "soft_density", "peel",
             "subspace")
 BASELINES = ("sobol", "straddle")          # space filling; level set estimation
+SCALAR = ("weakspot_scalar", "peel_scalar", "subspace_scalar")   # steer on the scalar outcome
 
 
 @dataclass
@@ -122,7 +125,8 @@ def stands_out(e, inside, z=3.0):
 def relevant_axes(X, e, z=3.0):
     """Coordinates on which failures differ from the rest in mean or spread; all of them
     when none stands out."""
-    hit, rest = X[e > 0], X[e == 0]
+    fail = e > 0.5                                       # binary failures, or a scaled scalar
+    hit, rest = X[fail], X[~fail]
     if len(hit) < 5:
         return list(range(X.shape[1]))
     n = len(hit)
@@ -276,6 +280,10 @@ def run(problem, n, strategy, seed, kappa=0.3, conf=0.25, rounds=4, delta=0.05, 
     """One campaign. All randomness of the system comes from ``seed``, so that strategies
     can be compared pairwise on the same problem."""
     rs = np.random.RandomState(seed)
+    base = problem
+    if strategy.endswith("_scalar"):                     # steer on the scalar, claim on failures
+        from scripts.regional.problems import Steered
+        problem, strategy = Steered(problem), strategy[: -len("_scalar")]
     pool = problem.sample(pool_size, rs)
     n_conf = int(round(conf * n))
     n_explore = n - n_conf
@@ -335,6 +343,10 @@ def run(problem, n, strategy, seed, kappa=0.3, conf=0.25, rounds=4, delta=0.05, 
             X, e = np.vstack([X, new]), np.concatenate([e, problem.failure(new, rs)])
             left -= len(new)
 
+    if problem is not base:                              # back to the binary failures
+        e = np.concatenate(problem.log)
+        assert len(e) == len(X)
+        problem = base
     Xc, used = draw_in(problem, region, n_conf, rs)
     draws += used
     ec = problem.failure(Xc, rs)

@@ -98,3 +98,9 @@ class Surrogate(Problem):
 
     def failure(self, X, rs):
         return self.mean_failure(X)
+
+    def outcome(self, X, rs):
+        """The absolute error relative to the tolerance t, capped at twice t and scaled to
+        [0, 1], so that a failure scores above 0.5 and a near miss just below."""
+        r = self._error(X) / self.t
+        return np.minimum(r, 2.0) / 2.0, (r > 1).astype(float)

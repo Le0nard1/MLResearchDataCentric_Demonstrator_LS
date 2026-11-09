@@ -18,9 +18,9 @@ from pathlib import Path
 import numpy as np
 
 from scripts.regional.benchmarks import BENCHMARKS
-from scripts.regional.campaign import BASELINES, STRATEGIES, VARIANTS, run, score
+from scripts.regional.campaign import BASELINES, SCALAR, STRATEGIES, VARIANTS, run, score
 from scripts.regional.landscapes import LANDSCAPES, test_set
-from scripts.regional.partition import HYBRIDS, METHODS, evaluate
+from scripts.regional.partition import DEEP, HYBRIDS, METHODS, evaluate
 from scripts.regional.problems import PLANTED, TRAINED, make
 
 OUT = Path("data/experiment_results/regional_testing")
@@ -64,6 +64,23 @@ STAGES = {
     # the supervised-PCA variant, paired with the hybrid stage (same regimes and seeds)
     "hybrid_pca": dict(FIXED, regimes=LANDSCAPES + RARE + ("four_branch",), dims=(2, 5, 10),
                        budgets=(2000, 10000), seeds=range(9700, 9710), strategies=("weakspot_pca",)),
+    # refinement without the stop rule, paired with the hybrid and fixed_bench stages
+    "deep_smoke": dict(FIXED, regimes=("herbie_low", "rastrigin_rot_rare", "four_branch"), dims=(5,),
+                       budgets=(2000, 10000), seeds=range(9000, 9002), strategies=DEEP),
+    "deep": dict(FIXED, regimes=LANDSCAPES + RARE + ("four_branch",), dims=(2, 5, 10),
+                 budgets=(2000, 10000), seeds=range(9700, 9710), strategies=DEEP),
+    "deep_bench": dict(FIXED, regimes=BENCHMARKS, dims=(0,), seeds=range(9600, 9620),
+                       strategies=("weakspot_pca",) + DEEP),
+    # Experiment 2 again: the baselines and scalar steering, paired with the benchmarks stage
+    "bench_extra_smoke": dict(regimes=("otl_iid", "robot_shift"), dims=(0,), budgets=(1000,),
+                              seeds=range(9000, 9002), strategies=BASELINES + SCALAR),
+    "bench_extra": dict(regimes=BENCHMARKS, dims=(0,), budgets=(1000,), seeds=range(9300, 9350),
+                        strategies=BASELINES + SCALAR),
+    # scalar steering on the landscapes, paired with the truth stage
+    "truth_scalar_smoke": dict(regimes=("ackley_low", "herbie_rot"), dims=(5,), budgets=(1000,),
+                               seeds=range(9000, 9002), strategies=SCALAR),
+    "truth_scalar": dict(regimes=LANDSCAPES, dims=(5, 10), budgets=(1000,), seeds=range(9400, 9450),
+                         strategies=SCALAR),
 }
 
 

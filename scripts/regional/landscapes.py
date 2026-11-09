@@ -68,6 +68,15 @@ class Landscape(Problem):
     def mean_failure(self, X):
         return (np.searchsorted(self.ranks, self._raw(X)) / len(self.ranks)) ** 19
 
+    def outcome(self, X, rs):
+        """A latent margin s = Phi^-1(f) + N(0, 1): it exceeds 0 with probability f, so that the
+        failure has the same law as a Bernoulli query, and a near miss is visible. The scalar
+        is reported as Phi(s) in [0, 1]."""
+        from scipy.stats import norm
+        f = np.clip(self.mean_failure(X), 1e-9, 1 - 1e-9)
+        s = norm.ppf(f) + rs.normal(size=len(X))
+        return norm.cdf(s), (s > 0).astype(float)
+
 
 def test_set(problem, X, e, tau, seed, n_eval=20000, k=25):
     """How good the test set is against the truth, for completeness, representativeness and

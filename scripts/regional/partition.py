@@ -29,6 +29,9 @@ Methods (``build`` argument):
                     taken in the directions where the failing points differ from all points
                     (mean shift and change of covariance), so that relevant axes and oblique
                     directions weigh more and irrelevant axes less; cuts stay on the axes
+    weakspot_deep   weakspot without the stop rule: decided regions are refined further, on the raw
+                    outcomes where the landscape lies on one side
+    weakspot_pca_deep  both: the supervised-PCA landscape and no stop rule
     weakspot_gini   hybrid of CART and weakspot: cuts chosen on the raw outcomes as in CART,
                     but only undecided regions are refined, largest first (weakspot allocation)
 """
@@ -43,6 +46,7 @@ from scripts.regional.bounds import cp_interval
 
 METHODS = ("global", "grid3", "grid_fit", "twise", "cart", "prim", "weakspot", "weakspot_naive")
 HYBRIDS = ("cart", "weakspot", "weakspot_forest", "weakspot_gini", "weakspot_pca")
+DEEP = ("weakspot_deep", "weakspot_pca_deep")
 
 
 # ---------------------------------------------------------------- partitions
@@ -198,11 +202,13 @@ def gini(a):
 
 
 def build_weakspot(X, y, m, tau, delta=0.05, cuts=np.linspace(0.1, 0.9, 9), max_leaves=200,
-                   estimate="knn", target="side"):
+                   estimate="knn", target="side", deep=False):
     """Iterative zoom on fixed data. Start from one region; in each step, among regions that
     are not yet decided, refine the one with the most undecided mass, at the cut that best
     separates the landscape into parts above and below ``tau``. A region is left as it is
-    once its own data decide it and its landscape lies on one side of ``tau``."""
+    once its own data decide it and its landscape lies on one side of ``tau``. With ``deep``,
+    no region is left: where the landscape lies on one side, the cut separates the raw
+    outcomes instead, so that a decided region can still be split around a failing part."""
     d, leaf = X.shape[1], min_leaf(y, m)
     est = {"knn": smooth, "forest": forest, "pca": smooth_pca}[estimate]
     side = est(X, y, m) > tau
@@ -213,9 +219,11 @@ def build_weakspot(X, y, m, tau, delta=0.05, cuts=np.linspace(0.1, 0.9, 9), max_
         if len(idx) < 2 * leaf:
             return None
         a, b = cp_interval(int(y[idx].sum()), len(idx), delta)
-        if not 0 < side[idx].mean() < 1 and (b <= tau or a > tau):
+        mixed = 0 < side[idx].mean() < 1
+        if not deep and not mixed and (b <= tau or a > tau):
             return None                                    # decided, landscape on one side
-        parent, best = gini(goal[idx]) * len(idx), None
+        g = goal if mixed or not deep else y.astype(float)
+        parent, best = gini(g[idx]) * len(idx), None
         for j in range(d):
             v = X[idx, j]
             for c in np.unique(np.quantile(v, cuts)):
@@ -223,7 +231,7 @@ def build_weakspot(X, y, m, tau, delta=0.05, cuts=np.linspace(0.1, 0.9, 9), max_
                 nl = int(left.sum())
                 if nl < leaf or len(idx) - nl < leaf:
                     continue
-                gain = parent - gini(goal[idx[left]]) * nl - gini(goal[idx[~left]]) * (len(idx) - nl)
+                gain = parent - gini(g[idx[left]]) * nl - gini(g[idx[~left]]) * (len(idx) - nl)
                 if gain > 1e-9 and (best is None or gain > best[0]):
                     best = (gain, j, c, left)
         return best
@@ -264,6 +272,10 @@ def build(method, X, y, m, tau):
         return build_weakspot(X, y, m, tau, estimate="forest")
     if method == "weakspot_pca":
         return build_weakspot(X, y, m, tau, estimate="pca")
+    if method == "weakspot_deep":
+        return build_weakspot(X, y, m, tau, deep=True)
+    if method == "weakspot_pca_deep":
+        return build_weakspot(X, y, m, tau, estimate="pca", deep=True)
     if method == "weakspot_gini":
         return build_weakspot(X, y, m, tau, estimate="forest", target="raw")
     raise ValueError(method)

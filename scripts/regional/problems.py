@@ -37,6 +37,12 @@ class Problem:
     def failure(self, X, rs):
         return (rs.uniform(size=len(X)) < self.mean_failure(X)).astype(float)
 
+    def outcome(self, X, rs):
+        """A scalar outcome scaled to [0, 1] relative to the tolerance, and the failure it
+        implies. Problems without a scalar return the failure for both."""
+        fail = self.failure(X, rs)
+        return fail, fail
+
     def truth(self):
         """Centre and radius of the true region in the first two coordinates, or None."""
         return None
@@ -90,6 +96,29 @@ def planted(regime, d, seed, n=1000, mass=0.05):
         w /= np.linalg.norm(w)
         return Planted(d, 0.01, band=mass / 2, normal=w, offset=float(w.sum() / 2))
     raise ValueError(regime)
+
+
+class Steered(Problem):
+    """Wraps a problem so that a strategy steers on the scalar outcome: ``failure`` returns the
+    scaled scalar, and the failures it implies are logged in call order, so that every claim
+    can still be made on the binary failures."""
+
+    def __init__(self, base):
+        self.base, self.d, self.X_train, self.log = base, base.d, base.X_train, []
+
+    def sample(self, n, rs):
+        return self.base.sample(n, rs)
+
+    def mean_failure(self, X):
+        return self.base.mean_failure(X)
+
+    def truth(self):
+        return self.base.truth()
+
+    def failure(self, X, rs):
+        score, fail = self.base.outcome(X, rs)
+        self.log.append(fail)
+        return score
 
 
 class Trained(Problem):
