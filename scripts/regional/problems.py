@@ -202,7 +202,51 @@ class FourBranch(Problem):
         return self.mean_failure(X)
 
 
+REAL = ("sulfur", "houses")
+
+
+
+class Empirical(Problem):
+    """A model trained on a real data set, tested on the records it did not see. Q is the
+    empirical distribution of the held-out records, so that the truth is exact: a test at x
+    tests the nearest record, and f(x) is the share of failing records at that input.
+    Inputs are rank-transformed to [0, 1] per coordinate; Q is not uniform on the cube.
+    A failure is an absolute error above the 95th percentile of the held-out errors."""
+
+    def __init__(self, name, seed, train=0.3, failing=0.05):
+        from pathlib import Path
+        from scipy.spatial import cKDTree
+        from scipy.stats import rankdata
+        from sklearn.ensemble import HistGradientBoostingRegressor
+        # converted once from the parquet files of the Grinsztajn et al. (2022) suite, since
+        # pyarrow crashes on Windows when it is loaded after scikit-learn
+        data = np.load(Path.home() / "scikit_learn_data" / "grinsztajn" / f"{name}.npz")
+        Z, y = data["X"], data["y"]
+        Z = np.column_stack([(rankdata(z) - 0.5) / len(z) for z in Z.T])
+        rs = np.random.RandomState(seed)
+        perm = rs.permutation(len(y))
+        tr, te = perm[: int(train * len(y))], perm[int(train * len(y)):]
+        model = HistGradientBoostingRegressor(max_iter=200, random_state=seed).fit(Z[tr], y[tr])
+        err = np.abs(y[te] - model.predict(Z[te]))
+        fail = (err > np.quantile(err, 1 - failing)).astype(float)
+        X, inv = np.unique(Z[te], axis=0, return_inverse=True)   # equal records share an input
+        inv = inv.ravel()
+        self.records = X
+        self.weight = np.bincount(inv).astype(float)
+        self.f = np.bincount(inv, weights=fail) / self.weight
+        self.weight /= self.weight.sum()
+        self.tree, self.d = cKDTree(X), X.shape[1]
+
+    def sample(self, n, rs):
+        return self.records[rs.choice(len(self.records), n, p=self.weight)]
+
+    def mean_failure(self, X):
+        return self.f[self.tree.query(X)[1]]
+
+
 def make(regime, d, seed, n=1000):
+    if regime in REAL:
+        return Empirical(regime, seed)
     from scripts.regional.benchmarks import BENCHMARKS, Surrogate
     from scripts.regional.landscapes import LANDSCAPES, Landscape
     if regime.endswith("_rare"):

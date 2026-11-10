@@ -21,12 +21,18 @@ from scripts.regional.benchmarks import BENCHMARKS
 from scripts.regional.campaign import BASELINES, SCALAR, STRATEGIES, VARIANTS, run, score
 from scripts.regional.landscapes import LANDSCAPES, test_set
 from scripts.regional.partition import DEEP, HYBRIDS, METHODS, evaluate
-from scripts.regional.problems import PLANTED, TRAINED, make
+from scripts.regional.problems import PLANTED, REAL, TRAINED, make
+from scripts.regional.report import run_report
 
 OUT = Path("data/experiment_results/regional_testing")
 TRUTH = ("random", "binning", "weakspot", "soft", "peel", "subspace")
 RARE = tuple(f"{r}_rare" for r in LANDSCAPES)
 FIXED = dict(budgets=(2000, 10000, 50000), strategies=METHODS, kind="fixed")
+LSE = ("gp_lse", "cross_entropy")
+ABLATION = tuple(f"{s}{o}" for s in ("peel", "weakspot")
+                 for o in ("", "|kappa=0.1", "|kappa=0.5", "|conf=0.15", "|conf=0.4", "|rounds=2", "|rounds=8"))
+REPORT = ("fixed_cart", "random+cart", "sobol+cart", "gp_lse+cart", "cross_entropy+cart",
+          "weakspot+cart", "subspace+cart", "peel+cart", "peel+weakspot_pca_deep")
 STAGES = {
     "smoke": dict(regimes=("no_failure", "hard", "hard_dense"), dims=(2,), budgets=(500,),
                   seeds=range(9000, 9002)),
@@ -84,12 +90,53 @@ STAGES = {
                                seeds=range(9000, 9002), strategies=SCALAR),
     "truth_scalar": dict(regimes=LANDSCAPES, dims=(5, 10), budgets=(1000,), seeds=range(9400, 9450),
                          strategies=SCALAR),
+    # stronger baselines: GP level set estimation and cross-entropy search, paired with the
+    # truth and benchmarks stages
+    "truth_lse": dict(regimes=LANDSCAPES, dims=(5, 10), budgets=(1000,), seeds=range(9400, 9450),
+                      strategies=LSE),
+    "bench_lse": dict(regimes=BENCHMARKS, dims=(0,), budgets=(1000,), seeds=range(9300, 9350),
+                      strategies=LSE),
+    # real data: a model trained on logged process data and on census data
+    "real_smoke": dict(regimes=REAL, dims=(0,), budgets=(1000,), seeds=range(9000, 9002),
+                       strategies=("random", "peel", "gp_lse")),
+    "real": dict(regimes=REAL, dims=(0,), budgets=(1000,), seeds=range(9300, 9350),
+                 strategies=VARIANTS + BASELINES + LSE),
+    "real_fixed": dict(FIXED, regimes=REAL, dims=(0,), budgets=(2000, 5000), seeds=range(9600, 9620),
+                       strategies=METHODS + ("weakspot_pca_deep",)),
+    # the settings of the campaign, one at a time
+    "ablation": dict(regimes=LANDSCAPES + BENCHMARKS, dims=(5,), budgets=(1000,),
+                     seeds=range(9900, 9920), strategies=ABLATION),
+    # the full report in the query setting (Definition 1), on fresh seeds
+    "report_smoke": dict(regimes=("herbie_low", "otl_iid", "sulfur"), dims=(5,), budgets=(1000,),
+                         seeds=range(9000, 9001), strategies=REPORT, kind="report"),
+    "report": dict(regimes=LANDSCAPES, dims=(5, 10), budgets=(1000, 3000), seeds=range(9800, 9820),
+                   strategies=REPORT, kind="report"),
+    "report_bench": dict(regimes=BENCHMARKS + REAL, dims=(0,), budgets=(1000, 3000),
+                         seeds=range(9800, 9820), strategies=REPORT, kind="report"),
 }
+
+
+def spec(s):
+    """A strategy with optional overrides of the campaign settings, as in "peel|kappa=0.1"."""
+    name, *kv = s.split("|")
+    return name, {k: (int(v) if k == "rounds" else float(v)) for k, v in (p.split("=") for p in kv)}
 
 
 def job(regime, d, n, seed, strategies=STRATEGIES, kind="campaign"):
     problem = make(regime, d, seed, n)
     rows = []
+    if kind == "report":
+        for s in strategies:
+            try:
+                if s == "fixed_cart":                   # no queries: random data, split, tree
+                    out = evaluate(problem, "cart", n, seed)
+                else:
+                    strategy, partition = s.split("+")
+                    out = run_report(problem, n, strategy, partition, seed)
+                rows.append(dict(regime=regime, d=d, n=n, seed=seed, strategy=s, **out))
+            except Exception as ex:                      # noqa: BLE001
+                rows.append(dict(regime=regime, d=d, n=n, seed=seed, strategy=s, tau="ERROR:" + repr(ex)))
+        return rows
     if kind == "fixed":
         for s in strategies:
             try:
@@ -100,7 +147,8 @@ def job(regime, d, n, seed, strategies=STRATEGIES, kind="campaign"):
         return rows
     for s in strategies:
         try:
-            report, region, X, e = run(problem, n, s, seed, tests=True)
+            name, kw = spec(s)
+            report, region, X, e = run(problem, n, name, seed, tests=True, **kw)
             extra = test_set(problem, X, e, 0.1, seed) if regime in LANDSCAPES else {}
             rows.append(dict(regime=regime, d=d, n=n, seed=seed, strategy=s, **report,
                              **score(problem, region, report, 0.1, seed), **extra))
@@ -145,7 +193,7 @@ def main():
     strategies = cfg.get("strategies", STRATEGIES)
     for rows in Parallel(n_jobs=args.workers, return_as="generator_unordered")(
             delayed(job)(*j, strategies, cfg.get("kind", "campaign")) for j in jobs):
-        names = names or max((list(r) for r in rows), key=len)
+        names = names or list(dict.fromkeys(k for r in rows for k in r))   # union, in order
         new = not path.exists()
         with path.open("a", newline="") as f:
             w = csv.DictWriter(f, fieldnames=names, restval="")

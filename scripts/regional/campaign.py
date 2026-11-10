@@ -275,6 +275,47 @@ def explore_peel(problem, X, e, pool, n, rounds, rs, min_mass):
     return X, e, box, float(box.contains(pool).mean()), draws
 
 
+def explore_gp(problem, X, e, pool, n, rs, tau, rounds=10, n_cand=3000, max_fit=1000):
+    """Level set estimation with a Gaussian process (Gotovos et al. 2013, straddle score of
+    Bryan et al. 2005): per round, fit a GP with an RBF kernel and a noise term to the
+    outcomes, and test the pool candidates with the largest 1.96 sd - |mean - tau|."""
+    from sklearn.gaussian_process import GaussianProcessRegressor
+    from sklearn.gaussian_process.kernels import RBF, ConstantKernel, WhiteKernel
+    d, left = X.shape[1], n
+    kernel = ConstantKernel(0.1, (1e-3, 10)) * RBF(np.full(d, 0.3), (1e-2, 10)) + \
+        WhiteKernel(0.05, (1e-4, 1))
+    for t in range(rounds):
+        m = left // (rounds - t)
+        fit = rs.choice(len(X), min(len(X), max_fit), replace=False)
+        gp = GaussianProcessRegressor(kernel, normalize_y=True, random_state=0).fit(X[fit], e[fit])
+        cand = pool[rs.choice(len(pool), n_cand, replace=False)]
+        mu, sd = gp.predict(cand, return_std=True)
+        new = cand[np.argsort(-(1.96 * sd - np.abs(mu - tau)))[:m]]
+        X, e = np.vstack([X, new]), np.concatenate([e, problem.failure(new, rs)])
+        left -= m
+    return X, e
+
+
+def explore_ce(problem, X, e, pool, n, rounds, rs, k=25, rho=0.1, smooth=0.7):
+    """Cross-entropy search for failures (Rubinstein; de Boer et al. 2005): per round, fit a
+    Gaussian with diagonal covariance to the elite share ``rho`` of the tests by landscape,
+    smoothed with the previous fit, and draw the next tests from the pool with weights
+    proportional to its density, so that every test stays an operational input."""
+    mean, sd, left = pool.mean(0), pool.std(0), n
+    for t in range(rounds):
+        m = left // (rounds - t)
+        land = interpolate(X, e, X, min(k, len(X)))
+        elite = X[land >= np.quantile(land, 1 - rho)]
+        mean = smooth * elite.mean(0) + (1 - smooth) * mean
+        sd = smooth * np.maximum(elite.std(0), 0.02) + (1 - smooth) * sd
+        logw = -0.5 * (((pool - mean) / sd) ** 2).sum(1)
+        p = np.exp(logw - logw.max())
+        new = pool[rs.choice(len(pool), m, replace=False, p=p / p.sum())]
+        X, e = np.vstack([X, new]), np.concatenate([e, problem.failure(new, rs)])
+        left -= m
+    return X, e
+
+
 def run(problem, n, strategy, seed, kappa=0.3, conf=0.25, rounds=4, delta=0.05, tau=0.1,
         min_mass=0.01, pool_size=50000, tests=False):
     """One campaign. All randomness of the system comes from ``seed``, so that strategies
@@ -287,6 +328,28 @@ def run(problem, n, strategy, seed, kappa=0.3, conf=0.25, rounds=4, delta=0.05, 
     pool = problem.sample(pool_size, rs)
     n_conf = int(round(conf * n))
     n_explore = n - n_conf
+    X, e, region, mass, draws, n_rep = explore(problem, pool, n_explore, strategy, rs, kappa,
+                                               rounds, tau, min_mass)
+    if problem is not base:                              # back to the binary failures
+        e = np.concatenate(problem.log)
+        assert len(e) == len(X)
+        problem = base
+    Xc, used = draw_in(problem, region, n_conf, rs)
+    draws += used
+    ec = problem.failure(Xc, rs)
+    lo, hi = cp_interval(int(ec.sum()), len(ec), delta)
+    rep_fail = int(e[:n_rep].sum())
+    report = dict(queries=len(X) + len(Xc), draws=draws, global_upper=cp_upper(rep_fail, n_rep, delta),
+                  n_rep=n_rep, region_mass=mass, n_conf=len(ec), failures=int(e.sum() + ec.sum()),
+                  region_mean=float(ec.mean()) if len(ec) else float("nan"), lo=lo, hi=hi,
+                  label=label(lo, hi, tau))
+    return (report, region, np.vstack([X, Xc]), np.concatenate([e, ec])) if tests else (report, region)
+
+
+def explore(problem, pool, n_explore, strategy, rs, kappa=0.3, rounds=4, tau=0.1, min_mass=0.01):
+    """The exploration of a campaign: a representative stream of share ``kappa``, then the
+    strategy. Returns the tests, their outcomes, the proposed region and its mass, the
+    rejected draws and the size of the representative stream (the first ``n_rep`` tests)."""
     share = 1.0 if strategy in ("random", "oracle") else kappa
     n_rep = int(round(share * n_explore))
     draws = 0
@@ -317,6 +380,12 @@ def run(problem, n, strategy, seed, kappa=0.3, conf=0.25, rounds=4, delta=0.05, 
     elif strategy == "straddle":
         X, e = explore_straddle(problem, X, e, pool, n_explore - n_rep, rounds, rs, tau)
         region, mass = propose(X, e, pool, None, 1.0, rs, min_mass=min_mass)
+    elif strategy == "gp_lse":
+        X, e = explore_gp(problem, X, e, pool, n_explore - n_rep, rs, tau)
+        region, mass = propose(X, e, pool, None, 1.0, rs, min_mass=min_mass)
+    elif strategy == "cross_entropy":
+        X, e = explore_ce(problem, X, e, pool, n_explore - n_rep, rounds, rs)
+        region, mass = propose(X, e, pool, None, 1.0, rs, min_mass=min_mass)
     elif strategy.startswith("soft"):
         X, e = explore_soft(problem, X, e, pool, n_explore - n_rep, rounds, rs, strategy)
         region, mass = propose(X, e, pool, None, 1.0, rs, min_mass=min_mass)
@@ -342,21 +411,7 @@ def run(problem, n, strategy, seed, kappa=0.3, conf=0.25, rounds=4, delta=0.05, 
             draws += used
             X, e = np.vstack([X, new]), np.concatenate([e, problem.failure(new, rs)])
             left -= len(new)
-
-    if problem is not base:                              # back to the binary failures
-        e = np.concatenate(problem.log)
-        assert len(e) == len(X)
-        problem = base
-    Xc, used = draw_in(problem, region, n_conf, rs)
-    draws += used
-    ec = problem.failure(Xc, rs)
-    lo, hi = cp_interval(int(ec.sum()), len(ec), delta)
-    rep_fail = int(e[:n_rep].sum())
-    report = dict(queries=len(X) + len(Xc), draws=draws, global_upper=cp_upper(rep_fail, n_rep, delta),
-                  n_rep=n_rep, region_mass=mass, n_conf=len(ec), failures=int(e.sum() + ec.sum()),
-                  region_mean=float(ec.mean()) if len(ec) else float("nan"), lo=lo, hi=hi,
-                  label=label(lo, hi, tau))
-    return (report, region, np.vstack([X, Xc]), np.concatenate([e, ec])) if tests else (report, region)
+    return X, e, region, mass, draws, n_rep
 
 
 def score(problem, region, report, tau, seed, n_eval=200000):
