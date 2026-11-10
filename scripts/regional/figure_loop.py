@@ -20,7 +20,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.colors import LinearSegmentedColormap, ListedColormap
-from matplotlib.patches import Patch, Rectangle
+from matplotlib.patches import Circle, Patch, Rectangle
 
 from scripts.regional.campaign import interpolate
 from scripts.regional.problems import make
@@ -77,14 +77,15 @@ def score(out):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--regime", default="rosenbrock_low")
-    ap.add_argument("--seed", type=int, default=9801)
+    ap.add_argument("--seed", type=int, default=9809)
     ap.add_argument("--n", type=int, default=1000)
+    ap.add_argument("--strategy", default="weakspot")
     ap.add_argument("--out", default="figure_loop.pdf")
     a = ap.parse_args()
     plt.rcParams["hatch.linewidth"] = 0.5
     problem = make(a.regime, 2, a.seed)
     trace = []
-    out, fam, result, X, e, got = run_report(problem, a.n, "peel", "cart", a.seed, details=True, trace=trace)
+    out, fam, result, X, e, got = run_report(problem, a.n, a.strategy, "cart", a.seed, details=True, trace=trace)
     *boxes, info = trace
     n_rep = info["n_rep"]
     fig, axes = plt.subplots(1, 5, figsize=(6.75, 2.05), facecolor=SURFACE)
@@ -106,8 +107,11 @@ def main():
     for t, (box, _) in enumerate(boxes):
         Xt = X[starts[t]:starts[t + 1]]
         ax.scatter(*Xt.T, s=2, c=ROUNDS[t], linewidths=0)
-        lo, hi = box.low, np.minimum(box.high, 1)
-        ax.add_patch(Rectangle(lo, *(hi - lo), fill=False, ec=ROUNDS[t], lw=1.0))
+        if hasattr(box, "radius"):                       # hard region: a ball, a circle in 2-D
+            ax.add_patch(Circle(box.centre, box.radius, fill=False, ec=ROUNDS[t], lw=1.0))
+        else:                                            # box peeling: a box
+            lo, hi = box.low, np.minimum(box.high, 1)
+            ax.add_patch(Rectangle(lo, *(hi - lo), fill=False, ec=ROUNDS[t], lw=1.0))
     outline(ax, problem)
     frame(ax, f"(b) Narrow\n{len(X) - n_rep} guided tests\nin {len(boxes)} rounds")
 
@@ -120,7 +124,7 @@ def main():
     idg = cells(ax, fam)
     for c in np.flatnonzero(alloc):
         ys, xs = np.nonzero(idg == c)
-        if len(xs) > 200:
+        if len(xs) > 2500:                               # label only regions large enough to read
             ax.text(xs.mean() / N_GRID, ys.mean() / N_GRID, str(alloc[c]), fontsize=5.5, color=INK,
                     ha="center", va="center")
     outline(ax, problem)

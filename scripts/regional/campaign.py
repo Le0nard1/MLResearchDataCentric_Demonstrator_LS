@@ -410,6 +410,8 @@ def explore(problem, pool, n_explore, strategy, rs, kappa=0.3, rounds=4, tau=0.1
         left, per = n_explore - n_rep, (n_explore - n_rep) // rounds
         for t in range(rounds):
             region, mass = propose(X, e, pool, region, mass, rs, min_mass=min_mass, mode=strategy)
+            if trace is not None:                        # for figures: region and first test of round t
+                trace.append((region, len(X)))
             new, used = draw_in(problem, region, per if t < rounds - 1 else left, rs)
             draws += used
             X, e = np.vstack([X, new]), np.concatenate([e, problem.failure(new, rs)])
