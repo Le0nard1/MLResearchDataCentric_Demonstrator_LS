@@ -74,14 +74,15 @@ def draw_cells(problem, fam, alloc, rs, batch=20000, max_draws=3000000):
 
 
 def run_report(problem, n, strategy, partition, seed, kappa=0.3, conf=0.5, rounds=4, delta=0.05,
-               tau=None, min_mass=0.01, pool_size=50000, m=5, n_eval=50000, details=False):
+               tau=None, min_mass=0.01, pool_size=50000, m=5, n_eval=50000, details=False,
+               trace=None):
     """One campaign with a full report, scored against the truth."""
     tau = getattr(problem, "tau", 0.1) if tau is None else tau
     rs = np.random.RandomState(seed)
     pool = problem.sample(pool_size, rs)
     n_conf = int(round(conf * n))
     X, e, _, _, draws, n_rep = explore(problem, pool, n - n_conf, strategy, rs, kappa, rounds, tau,
-                                       min_mass)
+                                       min_mass, trace)
     fam = build(partition, X, e, m, tau)[0]
     cells_pool = fam.ids(pool)
     M = int(max(cells_pool.max(), fam.ids(X).max())) + 1
@@ -123,4 +124,6 @@ def run_report(problem, n, strategy, partition, seed, kappa=0.3, conf=0.5, round
                 hidden_bad=hidden, enough=bool(und <= 0.1),
                 enough_safe=bool(und <= 0.1 and hidden <= 0.1),
                 false_clear=bool(false_clear), false_flag=bool(false_flag))
+    if trace is not None:
+        trace.append(dict(n_rep=n_rep, alloc=alloc, mass=mass, p_hat=p_hat))
     return (out, fam, cells, X, e, got) if details else out

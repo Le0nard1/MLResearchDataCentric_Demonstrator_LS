@@ -258,7 +258,7 @@ def peel_step(X, e, box, pool, min_mass, cuts=(0.25, 0.5, 0.75)):
     return best
 
 
-def explore_peel(problem, X, e, pool, n, rounds, rs, min_mass):
+def explore_peel(problem, X, e, pool, n, rounds, rs, min_mass, trace=None):
     """Start from the whole domain, as a one-cell binning, and refine only where the tests
     say so. Cells follow the input axes, so that irrelevant coordinates stay uncut."""
     box, left, draws = Box(np.zeros(problem.d), np.ones(problem.d) + 1e-9), n, 0
@@ -268,6 +268,8 @@ def explore_peel(problem, X, e, pool, n, rounds, rs, min_mass):
             if child is None:
                 break
             box = child
+        if trace is not None:                            # for figures: box and first test of round t
+            trace.append((Box(box.low.copy(), box.high.copy()), len(X)))
         new, used = draw_in(problem, box, left // (rounds - t), rs)
         draws += used
         X, e = np.vstack([X, new]), np.concatenate([e, problem.failure(new, rs)])
@@ -346,7 +348,8 @@ def run(problem, n, strategy, seed, kappa=0.3, conf=0.25, rounds=4, delta=0.05, 
     return (report, region, np.vstack([X, Xc]), np.concatenate([e, ec])) if tests else (report, region)
 
 
-def explore(problem, pool, n_explore, strategy, rs, kappa=0.3, rounds=4, tau=0.1, min_mass=0.01):
+def explore(problem, pool, n_explore, strategy, rs, kappa=0.3, rounds=4, tau=0.1, min_mass=0.01,
+            trace=None):
     """The exploration of a campaign: a representative stream of share ``kappa``, then the
     strategy. Returns the tests, their outcomes, the proposed region and its mass, the
     rejected draws and the size of the representative stream (the first ``n_rep`` tests)."""
@@ -391,7 +394,7 @@ def explore(problem, pool, n_explore, strategy, rs, kappa=0.3, rounds=4, tau=0.1
         region, mass = propose(X, e, pool, None, 1.0, rs, min_mass=min_mass)
     elif strategy == "peel":
         X, e, region, mass, draws = explore_peel(problem, X, e, pool, n_explore - n_rep, rounds,
-                                                 rs, min_mass)
+                                                 rs, min_mass, trace)
     elif strategy == "subspace":
         axes, inner, mass = relevant_axes(X, e), None, 1.0
         left, per = n_explore - n_rep, (n_explore - n_rep) // rounds
