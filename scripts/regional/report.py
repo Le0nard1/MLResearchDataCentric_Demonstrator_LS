@@ -74,7 +74,7 @@ def draw_cells(problem, fam, alloc, rs, batch=20000, max_draws=3000000):
 
 
 def run_report(problem, n, strategy, partition, seed, kappa=0.3, conf=0.5, rounds=4, delta=0.05,
-               tau=None, min_mass=0.01, pool_size=50000, m=5, n_eval=50000):
+               tau=None, min_mass=0.01, pool_size=50000, m=5, n_eval=50000, details=False):
     """One campaign with a full report, scored against the truth."""
     tau = getattr(problem, "tau", 0.1) if tau is None else tau
     rs = np.random.RandomState(seed)
@@ -115,7 +115,7 @@ def run_report(problem, n, strategy, partition, seed, kappa=0.3, conf=0.5, round
             mu = f[inside].mean()
             false_clear |= lab == "cleared" and mu > tau
             false_flag |= lab == "flagged" and mu <= tau
-    return dict(tau=tau, regions=M, funded=len(got), draws=draws + used, n_rep=n_rep,
+    out = dict(tau=tau, regions=M, funded=len(got), draws=draws + used, n_rep=n_rep,
                 global_upper=cp_upper(int(e[:n_rep].sum()), n_rep, delta),
                 undetermined_mass=und, flagged_mass=float(flagged.mean()),
                 cleared_mass=float(cleared.mean()), bad_mass=float(bad.mean()),
@@ -123,3 +123,4 @@ def run_report(problem, n, strategy, partition, seed, kappa=0.3, conf=0.5, round
                 hidden_bad=hidden, enough=bool(und <= 0.1),
                 enough_safe=bool(und <= 0.1 and hidden <= 0.1),
                 false_clear=bool(false_clear), false_flag=bool(false_flag))
+    return (out, fam, cells, X, e, got) if details else out
